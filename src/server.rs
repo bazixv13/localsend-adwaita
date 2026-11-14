@@ -7,6 +7,7 @@
 
 use crate::core::{Core, Event, IncomingFileInfo, IncomingRequest, ReceiveFile, ReceiveSession};
 use crate::protocol::{DeviceInfo, PrepareUploadRequest, PrepareUploadResponse, DEFAULT_PORT};
+use crate::history::{self, HistoryEntry, HistoryItem};
 use axum::body::Body;
 use axum::extract::{ConnectInfo, Query, State};
 use axum::http::{header, StatusCode};
@@ -367,6 +368,20 @@ async fn prepare_upload(
 
     if message_only {
         core.end_prepare();
+        let entry = HistoryEntry {
+            id: session_id.clone(),
+            alias: peer_alias.clone(),
+            timestamp: history::now_unix(),
+            items: text_messages
+                .iter()
+                .map(|text| HistoryItem::Message {
+                    id: history::make_item_id(),
+                    bytes: history::message_bytes(text),
+                    text: Some(text.clone()),
+                })
+                .collect(),
+        };
+        core.history_add_entry(entry);
         core.emit(Event::ReceiveText {
             alias: peer_alias,
             messages: text_messages,
@@ -410,6 +425,7 @@ async fn prepare_upload(
             received: AtomicU64::new(0),
             done: AtomicBool::new(false),
             text: Mutex::new(None),
+            path: Mutex::new(None),
         }));
     }
 
@@ -423,6 +439,7 @@ async fn prepare_upload(
         canceled: AtomicBool::new(false),
         directory,
         last_activity: Mutex::new(Instant::now()),
+        history_started: AtomicBool::new(false),
     });
     core.insert_session(session);
     core.end_prepare();
@@ -480,6 +497,9 @@ async fn upload(
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
+    if let Ok(mut slot) = file.path.lock() {
+        *slot = Some(target.path.clone());
+    }
 
     let mut output = tokio::fs::File::from_std(target.file);
     let mut stream = body.into_data_stream();
@@ -566,7 +586,8 @@ async fn upload(
 
 /// Records a completed file, emits progress, and finishes the session once all
 /// files are done. Text is reported separately so the UI never presents it as
-/// a saved file.
+/// a saved file. Each landed item is recorded in history immediately so a
+/// cancelled transfer still keeps the files that were fully received.
 fn complete_file(
     core: &Core,
     session: &Arc<ReceiveSession>,
@@ -576,6 +597,48 @@ fn complete_file(
     file.received.store(received, Ordering::SeqCst);
     file.done.store(true, Ordering::SeqCst);
     session.done_bytes.fetch_add(received, Ordering::SeqCst);
+
+    // Record history for this completed item.
+    if crate::protocol::is_text_file(&file.file_type) {
+        let text = file.text.lock().ok().and_then(|t| t.clone()).unwrap_or_default();
+        core.history_record_item(
+            &session.id,
+            &session.peer_alias,
+            HistoryItem::Message {
+                id: history::make_item_id(),
+                bytes: history::message_bytes(&text),
+                text: Some(text),
+            },
+        );
+    } else {
+        let path = file.path.lock().ok().and_then(|p| p.clone());
+        if let Some(path) = path {
+            let cache = if core.config().history_cache {
+                let cache_root = core.history_cache_root();
+                let index = session.files_done.load(Ordering::SeqCst) as usize;
+                history::cache_file_copy(&path, &session.id, index, &file.name, &cache_root)
+            } else {
+                None
+            };
+            let mime_hint = mime_guess::from_path(&path)
+                .first_raw()
+                .unwrap_or("application/octet-stream")
+                .to_string();
+            core.history_record_item(
+                &session.id,
+                &session.peer_alias,
+                HistoryItem::File {
+                    id: history::make_item_id(),
+                    name: file.name.clone(),
+                    size: received,
+                    mime_hint,
+                    path,
+                    cache,
+                },
+            );
+        }
+    }
+
     let files_done = session.files_done.fetch_add(1, Ordering::SeqCst) + 1;
     core.emit(Event::ReceiveProgress {
         session_id: session.id.clone(),

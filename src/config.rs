@@ -26,6 +26,8 @@ pub struct Config {
     /// Store incoming transfers without opening the window. Receiving never
     /// asks for confirmation, so this only decides whether the window pops up.
     pub quick_save: bool,
+    /// Keep cached copies of received files in history for quick access.
+    pub history_cache: bool,
 }
 
 impl Default for Config {
@@ -42,6 +44,7 @@ impl Default for Config {
             run_in_background: true,
             tray_icon: true,
             quick_save: true,
+            history_cache: true,
         }
     }
 }

@@ -2,6 +2,7 @@ mod application;
 mod config;
 mod core;
 mod discovery;
+mod history;
 mod net;
 mod protocol;
 mod sender;

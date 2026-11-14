@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::history::{HistoryEntry, HistoryItem, HistoryStore, RemoveOutcome, Resolution};
 use crate::protocol::{DeviceInfo, DEFAULT_PORT};
 use crate::tls::Identity;
 use std::collections::{HashMap, HashSet};
@@ -52,6 +53,7 @@ pub struct ReceiveFile {
     pub received: AtomicU64,
     pub done: AtomicBool,
     pub text: Mutex<Option<String>>,
+    pub path: Mutex<Option<PathBuf>>,
 }
 
 pub struct ReceiveSession {
@@ -66,6 +68,7 @@ pub struct ReceiveSession {
     /// Last time bytes moved. A session that stops moving means the sender
     /// vanished, so the window must stop showing it as running.
     pub last_activity: Mutex<Instant>,
+    pub history_started: AtomicBool,
 }
 
 impl ReceiveSession {
@@ -165,6 +168,7 @@ pub enum Event {
         paths: Vec<PathBuf>,
     },
     Toast(String),
+    HistoryChanged,
 }
 
 pub struct Core {
@@ -174,6 +178,7 @@ pub struct Core {
     pub devices: Mutex<HashMap<String, Device>>,
     unreachable: Mutex<HashSet<String>>,
     pub sessions: Mutex<HashMap<String, Arc<ReceiveSession>>>,
+    pub history: Mutex<HistoryStore>,
     port: AtomicU16,
     protocol: RwLock<&'static str>,
     identity: RwLock<Option<Arc<Identity>>>,
@@ -206,6 +211,7 @@ impl Core {
             devices: Mutex::new(HashMap::new()),
             unreachable: Mutex::new(HashSet::new()),
             sessions: Mutex::new(HashMap::new()),
+            history: Mutex::new(HistoryStore::load_default()),
             port: AtomicU16::new(DEFAULT_PORT),
             protocol: RwLock::new("http"),
             identity: RwLock::new(identity),
@@ -227,6 +233,14 @@ impl Core {
     #[cfg(test)]
     pub(crate) fn for_test(config: Config) -> Self {
         let (events, receiver) = async_channel::unbounded();
+        let root = std::env::temp_dir().join(format!(
+            "localsend-core-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let data = root.join("data");
+        let cache = root.join("cache/history");
+        let _ = std::fs::create_dir_all(&data);
+        let _ = std::fs::create_dir_all(&cache);
         Self {
             events,
             receiver: Mutex::new(Some(receiver)),
@@ -234,6 +248,7 @@ impl Core {
             devices: Mutex::new(HashMap::new()),
             unreachable: Mutex::new(HashSet::new()),
             sessions: Mutex::new(HashMap::new()),
+            history: Mutex::new(HistoryStore::load(data.join("history.json"), cache)),
             port: AtomicU16::new(DEFAULT_PORT),
             protocol: RwLock::new("http"),
             identity: RwLock::new(None),
@@ -558,6 +573,68 @@ impl Core {
             }
             None => false,
         }
+    }
+
+    pub fn history_snapshot(&self) -> Vec<HistoryEntry> {
+        self.history.lock().unwrap().entries().to_vec()
+    }
+
+    pub fn history_usage(&self) -> u64 {
+        self.history.lock().unwrap().usage_bytes()
+    }
+
+    pub fn history_clear_all(&self) {
+        self.history.lock().unwrap().clear_all();
+        self.emit(Event::HistoryChanged);
+    }
+
+    pub fn history_add_entry(&self, entry: HistoryEntry) {
+        self.history.lock().unwrap().add_entry(entry);
+        self.emit(Event::HistoryChanged);
+    }
+
+    pub fn history_resolve(&self, item_id: &str) -> Resolution {
+        self.history.lock().unwrap().resolve(item_id)
+    }
+
+    pub fn history_remove_item(&self, item_id: &str) -> RemoveOutcome {
+        let outcome = self.history.lock().unwrap().remove_item(item_id);
+        if matches!(outcome, RemoveOutcome::Removed) {
+            self.emit(Event::HistoryChanged);
+        }
+        outcome
+    }
+
+    pub fn history_delete_file(&self, item_id: &str) -> Result<(), String> {
+        let result = self.history.lock().unwrap().delete_item_file(item_id);
+        if result.is_ok() {
+            self.emit(Event::HistoryChanged);
+        }
+        result
+    }
+
+    pub fn history_cache_root(&self) -> PathBuf {
+        self.history.lock().unwrap().cache_root().to_path_buf()
+    }
+
+    pub fn history_record_item(&self, session_id: &str, alias: &str, item: HistoryItem) {
+        let mut history = self.history.lock().unwrap();
+        if let Some(entry) = history.entries.iter_mut().find(|e| e.id == session_id) {
+            if !entry.items.iter().any(|i| i.id() == item.id()) {
+                entry.items.push(item);
+            }
+        } else {
+            history.entries.insert(0, HistoryEntry {
+                id: session_id.to_string(),
+                alias: alias.to_string(),
+                timestamp: crate::history::now_unix(),
+                items: vec![item],
+            });
+        }
+        history.evict();
+        let _ = history.save();
+        drop(history);
+        self.emit(Event::HistoryChanged);
     }
 
     pub fn insert_session(&self, session: Arc<ReceiveSession>) {

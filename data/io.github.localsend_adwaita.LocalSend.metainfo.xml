@@ -46,6 +46,21 @@
   </keywords>
 
   <releases>
+    <release version="0.3.5" date="2026-11-14">
+      <description>
+        <p>Reverted recent memory-optimization experiments that increased RAM usage in practice.</p>
+      </description>
+    </release>
+    <release version="0.3.1" date="2026-11-14">
+      <description>
+        <p>Improved history and settings: attached history dialog, live updates after changes, clearer empty state, click-to-open items, cache controls in Settings, and stable multi-file receive progress labels.</p>
+      </description>
+    </release>
+    <release version="0.3.0" date="2026-11-14">
+      <description>
+        <p>Added a transfer history with a 128 MB cache, quick access to cached files and messages, and per-item copy, open, and delete actions.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-11-14">
       <description>
         <p>Queue files and messages before choosing a device, redesigned home page, in-window confirmation for incoming transfers, and calmer notifications.</p>
