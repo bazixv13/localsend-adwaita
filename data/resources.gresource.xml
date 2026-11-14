@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/io/github/localsend_adwaita/LocalSend">
+    <file alias="icons/scalable/apps/io.github.localsend_adwaita.LocalSend.svg">icons/scalable/apps/io.github.localsend_adwaita.LocalSend.svg</file>
+  </gresource>
+</gresources>

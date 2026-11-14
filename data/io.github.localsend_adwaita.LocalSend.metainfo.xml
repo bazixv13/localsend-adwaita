@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.localsend_adwaita.LocalSend</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>LocalSend</name>
+  <summary>Share files with nearby devices</summary>
+
+  <description>
+    <p>LocalSend lets you share files with nearby devices over your local network. No account, no cloud and no internet connection is required.</p>
+    <p>This native GNOME app is built with GTK 4 and libadwaita and speaks the LocalSend protocol, so it works with the LocalSend apps on Android, iOS, Windows, macOS and Linux.</p>
+    <ul>
+      <li>Automatic device discovery on the local network</li>
+      <li>Send files and folders by picking them or dropping them on the window</li>
+      <li>Optional PIN protection and encrypted transfers</li>
+      <li>Native, adaptive GNOME interface</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.localsend_adwaita.LocalSend.desktop</launchable>
+  <url type="homepage">https://localsend.org</url>
+  <url type="bugtracker">https://github.com/localsend/localsend/issues</url>
+
+  <developer id="io.github.localsend_adwaita">
+    <name>LocalSend Adwaita Contributors</name>
+  </developer>
+
+  <content_rating type="oars-1.1"/>
+
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <categories>
+    <category>Network</category>
+    <category>FileTransfer</category>
+    <category>GTK</category>
+  </categories>
+
+  <keywords>
+    <keyword>send</keyword>
+    <keyword>share</keyword>
+    <keyword>transfer</keyword>
+    <keyword>lan</keyword>
+    <keyword>local</keyword>
+    <keyword>files</keyword>
+  </keywords>
+
+  <releases>
+    <release version="0.2.0" date="2026-11-14">
+      <description>
+        <p>Queue files and messages before choosing a device, redesigned home page, in-window confirmation for incoming transfers, and calmer notifications.</p>
+      </description>
+    </release>
+    <release version="0.1.3" date="2026-11-14">
+      <description>
+        <p>Automatic receiving, clipboard text delivery, tray icon and notification fixes.</p>
+      </description>
+    </release>
+    <release version="0.1.2" date="2026-11-14">
+      <description>
+        <p>Version bump for testing.</p>
+      </description>
+    </release>
+    <release version="0.1.1" date="2026-11-13">
+      <description>
+        <p>Improved clipboard handling with wl-copy, added desktop notifications, and background transfer updates.</p>
+      </description>
+    </release>
+    <release version="0.1.0" date="2026-11-13">
+      <description>
+        <p>Initial release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

@@ -1,0 +1,76 @@
+{
+    "app-id": "io.github.localsend_adwaita.LocalSend",
+    "runtime": "org.gnome.Platform",
+    "runtime-version": "50",
+    "sdk": "org.gnome.Sdk",
+    "sdk-extensions": [
+        "org.freedesktop.Sdk.Extension.rust-stable"
+    ],
+    "command": "localsend-adwaita",
+    "finish-args": [
+        "--share=network",
+        "--share=ipc",
+        "--socket=wayland",
+        "--socket=fallback-x11",
+        "--device=dri",
+        "--filesystem=xdg-download",
+        "--talk-name=org.freedesktop.Notifications",
+        "--talk-name=org.kde.StatusNotifierWatcher",
+        "--env=MALLOC_ARENA_MAX=2"
+    ],
+    "build-options": {
+        "append-path": "/usr/lib/sdk/rust-stable/bin"
+    },
+    "modules": [
+        {
+            "name": "wl-clipboard",
+            "buildsystem": "meson",
+            "config-opts": [
+                "-Dzshcompletiondir=no",
+                "-Dfishcompletiondir=no"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/bugaevc/wl-clipboard/archive/refs/tags/v2.2.1.tar.gz",
+                    "sha256": "6eb8081207fb5581d1d82c4bcd9587205a31a3d47bea3ebeb7f41aa1143783eb"
+                }
+            ]
+        },
+        {
+            "name": "localsend-adwaita",
+            "buildsystem": "simple",
+            "build-options": {
+                "env": {
+                    "CARGO_HOME": "/run/build/localsend-adwaita/cargo"
+                }
+            },
+            "build-commands": [
+                "while read -r d s; do printf '{\"files\":{},\"package\":\"%s\"}' \"$s\" > \"cargo/vendor/$d/.cargo-checksum.json\"; done < cargo/vendor-checksums.txt",
+                "cargo --offline build --release --locked",
+                "install -Dm755 target/release/localsend-adwaita -t /app/bin",
+                "install -Dm644 data/io.github.localsend_adwaita.LocalSend.desktop -t /app/share/applications",
+                "install -Dm644 data/io.github.localsend_adwaita.LocalSend.metainfo.xml -t /app/share/metainfo",
+                "install -Dm644 data/icons/scalable/apps/io.github.localsend_adwaita.LocalSend.svg -t /app/share/icons/hicolor/scalable/apps",
+                "install -Dm644 COPYING -t /app/share/licenses/io.github.localsend_adwaita.LocalSend"
+            ],
+            "sources": [
+                "cargo-sources.json",
+                {
+                    "type": "dir",
+                    "path": "..",
+                    "skip": [
+                        ".git",
+                        "target",
+                        "flatpak/build",
+                        "flatpak/repo",
+                        "*.log",
+                        "build",
+                        "_flatpak_build",
+                        ".flatpak-builder"
+                    ]
+                }
+            ]
+        }
+    ]
+}

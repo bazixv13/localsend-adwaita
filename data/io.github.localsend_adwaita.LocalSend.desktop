@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=LocalSend
+GenericName=File Transfer
+Comment=Share files with nearby devices
+Exec=localsend-adwaita
+Icon=io.github.localsend_adwaita.LocalSend
+Terminal=false
+Type=Application
+Categories=Network;FileTransfer;GTK;
+Keywords=send;share;transfer;lan;local;airdrop;files;
+StartupNotify=true

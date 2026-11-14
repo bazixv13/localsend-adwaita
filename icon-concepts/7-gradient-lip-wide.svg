@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="a7bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4f97f5"/><stop offset="1" stop-color="#1a63d8"/>
+    </linearGradient>
+    <linearGradient id="a7side" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3479ea"/><stop offset="1" stop-color="#0f4599"/>
+    </linearGradient>
+    <linearGradient id="a7paper" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#d7e6ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="15" y="23" width="98" height="90" rx="25" fill="url(#a7side)"/>
+  <rect x="15" y="12" width="98" height="90" rx="25" fill="url(#a7bg)"/>
+  <rect x="19" y="16" width="90" height="40" rx="20" fill="#ffffff" opacity="0.12"/>
+  <g stroke="#ffffff" stroke-opacity="0.32" stroke-width="5" stroke-linecap="round">
+    <path d="M31 78h16"/><path d="M25 90h10"/>
+  </g>
+  <path d="M99 34 L31 61 L56 69 L64 94 L76 73 Z" fill="url(#a7paper)"/>
+  <path d="M99 34 L56 69 L64 94 L76 73 Z" fill="#b9d2ff"/>
+  <path d="M99 34 L56 69 L51 62 Z" fill="#eaf2ff"/>
+</svg>
