@@ -151,16 +151,7 @@ pub fn api_url(ip: &str, port: u16, protocol: &str, route: &str) -> String {
 
 /// Percent-encodes a query value. Only unreserved characters are kept.
 pub fn percent_encode(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                out.push(byte as char)
-            }
-            _ => out.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    out
+    gtk::glib::uri_escape_string(value, None::<&str>, true).into()
 }
 
 /// Turns a sender-provided file name into a safe path relative to the

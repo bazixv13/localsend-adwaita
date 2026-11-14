@@ -68,7 +68,6 @@ pub struct ReceiveSession {
     /// Last time bytes moved. A session that stops moving means the sender
     /// vanished, so the window must stop showing it as running.
     pub last_activity: Mutex<Instant>,
-    pub history_started: AtomicBool,
 }
 
 impl ReceiveSession {
@@ -203,6 +202,10 @@ impl Core {
                 None
             }
         };
+        Self::with_parts(config, identity, HistoryStore::load_default())
+    }
+
+    fn with_parts(config: Config, identity: Option<Arc<Identity>>, history: HistoryStore) -> Self {
         let (events, receiver) = async_channel::unbounded();
         Self {
             events,
@@ -211,7 +214,7 @@ impl Core {
             devices: Mutex::new(HashMap::new()),
             unreachable: Mutex::new(HashSet::new()),
             sessions: Mutex::new(HashMap::new()),
-            history: Mutex::new(HistoryStore::load_default()),
+            history: Mutex::new(history),
             port: AtomicU16::new(DEFAULT_PORT),
             protocol: RwLock::new("http"),
             identity: RwLock::new(identity),
@@ -232,32 +235,17 @@ impl Core {
 
     #[cfg(test)]
     pub(crate) fn for_test(config: Config) -> Self {
-        let (events, receiver) = async_channel::unbounded();
-        let root = std::env::temp_dir().join(format!(
-            "localsend-core-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("localsend-core-test-{}", uuid::Uuid::new_v4()));
         let data = root.join("data");
         let cache = root.join("cache/history");
         let _ = std::fs::create_dir_all(&data);
         let _ = std::fs::create_dir_all(&cache);
-        Self {
-            events,
-            receiver: Mutex::new(Some(receiver)),
-            config: RwLock::new(config),
-            devices: Mutex::new(HashMap::new()),
-            unreachable: Mutex::new(HashSet::new()),
-            sessions: Mutex::new(HashMap::new()),
-            history: Mutex::new(HistoryStore::load(data.join("history.json"), cache)),
-            port: AtomicU16::new(DEFAULT_PORT),
-            protocol: RwLock::new("http"),
-            identity: RwLock::new(None),
-            preparing: AtomicBool::new(false),
-            scanning: AtomicBool::new(false),
-            revision: AtomicU64::new(0),
-            tray_active: AtomicBool::new(false),
-            outgoing: Mutex::new(HashMap::new()),
-        }
+        Self::with_parts(
+            config,
+            None,
+            HistoryStore::load(data.join("history.json"), cache),
+        )
     }
 
     pub fn subscribe(&self) -> async_channel::Receiver<Event> {
@@ -624,12 +612,15 @@ impl Core {
                 entry.items.push(item);
             }
         } else {
-            history.entries.insert(0, HistoryEntry {
-                id: session_id.to_string(),
-                alias: alias.to_string(),
-                timestamp: crate::history::now_unix(),
-                items: vec![item],
-            });
+            history.entries.insert(
+                0,
+                HistoryEntry {
+                    id: session_id.to_string(),
+                    alias: alias.to_string(),
+                    timestamp: crate::history::now_unix(),
+                    items: vec![item],
+                },
+            );
         }
         history.evict();
         let _ = history.save();
