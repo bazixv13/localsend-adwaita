@@ -68,8 +68,7 @@ fn restrict_permissions(path: &std::path::Path) {
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+    crate::util::to_hex(&Sha256::digest(bytes))
 }
 
 fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {

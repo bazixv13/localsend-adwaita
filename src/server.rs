@@ -6,8 +6,8 @@
 //! rejected in `protocol::sanitize_relative_path`.
 
 use crate::core::{Core, Event, IncomingFileInfo, IncomingRequest, ReceiveFile, ReceiveSession};
-use crate::protocol::{DeviceInfo, PrepareUploadRequest, PrepareUploadResponse, DEFAULT_PORT};
 use crate::history::{self, HistoryEntry, HistoryItem};
+use crate::protocol::{DeviceInfo, PrepareUploadRequest, PrepareUploadResponse, DEFAULT_PORT};
 use axum::body::Body;
 use axum::extract::{ConnectInfo, Query, State};
 use axum::http::{header, StatusCode};
@@ -68,8 +68,7 @@ pub fn start(core: Arc<Core>) -> Result<(), String> {
     std::thread::Builder::new()
         .name("localsend-http".to_string())
         .spawn(move || {
-            let runtime = match tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
+            let runtime = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
             {
@@ -81,7 +80,7 @@ pub fn start(core: Arc<Core>) -> Result<(), String> {
                     return;
                 }
             };
-            if let Err(error) = runtime.block_on(serve(core.clone(), listener, tls_config, port)) {
+            if let Err(error) = runtime.block_on(serve(core.clone(), listener, tls_config)) {
                 core.emit(Event::ServerError(format!(
                     "Receiving is unavailable: {error}"
                 )));
@@ -112,12 +111,10 @@ async fn serve(
     core: Arc<Core>,
     listener: std::net::TcpListener,
     tls_config: Option<Arc<rustls::ServerConfig>>,
-    port: u16,
 ) -> Result<(), String> {
     let listener = TcpListener::from_std(listener)
         .map_err(|e| format!("Could not use the listening socket: {e}"))?;
     let app = router(core.clone());
-    let _ = port;
 
     // A sender that vanishes mid-transfer leaves a session with no bytes
     // moving. Drop it and tell the window, so no dead progress page stays.
@@ -263,10 +260,11 @@ async fn prepare_upload(
     // expects 204 (no upload needed), not a file upload.
     let message_only = all_messages
         && !request.files.is_empty()
-        && request
-            .files
-            .values()
-            .all(|file| file.preview.as_deref().is_some_and(|preview| !preview.is_empty()));
+        && request.files.values().all(|file| {
+            file.preview
+                .as_deref()
+                .is_some_and(|preview| !preview.is_empty())
+        });
 
     for file in request.files.values() {
         if crate::protocol::is_message(file) {
@@ -439,7 +437,6 @@ async fn prepare_upload(
         canceled: AtomicBool::new(false),
         directory,
         last_activity: Mutex::new(Instant::now()),
-        history_started: AtomicBool::new(false),
     });
     core.insert_session(session);
     core.end_prepare();
@@ -564,11 +561,7 @@ async fn upload(
     }
 
     if let Some(expected) = file.sha256.as_deref() {
-        let actual = hasher.finalize();
-        let actual = actual
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
+        let actual = crate::util::to_hex(&hasher.finalize());
         if !expected.eq_ignore_ascii_case(&actual) {
             let _ = tokio::fs::remove_file(&target.path).await;
             fail_session(
@@ -600,7 +593,12 @@ fn complete_file(
 
     // Record history for this completed item.
     if crate::protocol::is_text_file(&file.file_type) {
-        let text = file.text.lock().ok().and_then(|t| t.clone()).unwrap_or_default();
+        let text = file
+            .text
+            .lock()
+            .ok()
+            .and_then(|t| t.clone())
+            .unwrap_or_default();
         core.history_record_item(
             &session.id,
             &session.peer_alias,
@@ -737,8 +735,7 @@ async fn receive_text(
         return StatusCode::BAD_REQUEST.into_response();
     }
     if let Some(expected) = file.sha256.as_deref() {
-        let actual = hasher.finalize();
-        let actual: String = actual.iter().map(|byte| format!("{byte:02x}")).collect();
+        let actual = crate::util::to_hex(&hasher.finalize());
         if !expected.eq_ignore_ascii_case(&actual) {
             fail_session(&core, &session, "The message did not match its checksum");
             return StatusCode::UNPROCESSABLE_ENTITY.into_response();
@@ -789,8 +786,14 @@ fn fail_session(core: &Core, session: &Arc<ReceiveSession>, message: &str) {
 }
 
 fn json_response<T: serde::Serialize>(status: StatusCode, value: &T) -> Response {
-    let body = serde_json::to_vec(value).unwrap_or_default();
-    (status, [(header::CONTENT_TYPE, "application/json")], body).into_response()
+    match serde_json::to_vec(value) {
+        Ok(body) => (status, [(header::CONTENT_TYPE, "application/json")], body).into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Could not encode the response: {error}"),
+        )
+            .into_response(),
+    }
 }
 
 fn create_target(directory: &Path, relative: &Path) -> std::io::Result<TargetFile> {
@@ -890,11 +893,7 @@ mod tests {
 
         let app = router(core.clone());
         let contents = b"hello from the protocol".to_vec();
-        let digest = Sha256::digest(&contents);
-        let sha256 = digest
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
+        let sha256 = crate::util::to_hex(&Sha256::digest(&contents));
         let peer = SocketAddr::from(([127, 0, 0, 1], 4444));
 
         let body = json!({
@@ -1059,11 +1058,7 @@ mod tests {
         let mut text_rx = text_event_loop(&core);
         let peer = SocketAddr::from(([127, 0, 0, 1], 4444));
         let contents = b"a message body".to_vec();
-        let digest = Sha256::digest(&contents);
-        let sha256 = digest
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
+        let sha256 = crate::util::to_hex(&Sha256::digest(&contents));
 
         let body = json!({
             "info": {

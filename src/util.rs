@@ -49,9 +49,17 @@ pub fn device_type_icon(device_type: &str) -> &'static str {
     }
 }
 
+pub fn to_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
 pub fn random_hex(bytes: usize) -> String {
     let mut buffer = vec![0u8; bytes];
     rand::thread_rng().fill_bytes(&mut buffer);
-    buffer.iter().map(|byte| format!("{byte:02x}")).collect()
+    to_hex(&buffer)
 }
-

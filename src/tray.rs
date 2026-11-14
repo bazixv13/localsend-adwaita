@@ -126,10 +126,7 @@ pub fn spawn(core: Arc<Core>) -> Result<(), String> {
                 *slot = Some(runtime.handle().clone());
             }
             runtime.block_on(async move {
-                let tray = LocalSendTray {
-                    core: core.clone(),
-                }
-                .disable_dbus_name(true);
+                let tray = LocalSendTray { core: core.clone() }.disable_dbus_name(true);
                 match tray.spawn().await {
                     Ok(handle) => {
                         if let Ok(mut slot) = handle_slot().lock() {

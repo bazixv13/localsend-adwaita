@@ -1,10 +1,7 @@
-use crate::config::display_path;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const HISTORY_BUDGET: u64 = 128 * 1024 * 1024;
 pub const FILE_CACHE_CAP: u64 = 32 * 1024 * 1024;
@@ -13,7 +10,7 @@ fn default_version() -> u32 {
     1
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryStore {
     #[serde(default = "default_version")]
     pub version: u32,
@@ -67,6 +64,7 @@ pub struct CachedCopy {
 pub enum Resolution {
     Original(PathBuf),
     Cached(PathBuf),
+    Message,
     Missing,
 }
 
@@ -80,32 +78,6 @@ impl HistoryItem {
     pub fn id(&self) -> &str {
         match self {
             HistoryItem::File { id, .. } | HistoryItem::Message { id, .. } => id,
-        }
-    }
-
-    pub fn display_subtitle(&self) -> String {
-        match self {
-            HistoryItem::File { size, path, .. } => {
-                let size = crate::util::human_bytes(*size);
-                match self.resolution() {
-                    Resolution::Original(_) => {
-                        format!("{size} · {}", display_path(path))
-                    }
-                    Resolution::Cached(_) => format!("{size} · Cached copy"),
-                    Resolution::Missing => format!("{size} · No longer available"),
-                }
-            }
-            HistoryItem::Message { text, .. } => match text {
-                Some(t) if !t.is_empty() => {
-                    let preview: String = t.chars().take(80).collect();
-                    if t.chars().count() > 80 {
-                        format!("{preview}…")
-                    } else {
-                        preview
-                    }
-                }
-                _ => "Message removed from cache".to_string(),
-            },
         }
     }
 
@@ -125,8 +97,7 @@ impl HistoryItem {
             }
             HistoryItem::Message { text, .. } => {
                 if text.is_some() {
-                    // Messages don't have a file path; treat as available via text.
-                    Resolution::Cached(PathBuf::new())
+                    Resolution::Message
                 } else {
                     Resolution::Missing
                 }
@@ -138,23 +109,12 @@ impl HistoryItem {
         match self {
             HistoryItem::File { cache: Some(c), .. } => c.bytes,
             HistoryItem::File { cache: None, .. } => 0,
-            HistoryItem::Message { bytes, text: Some(_), .. } => *bytes,
+            HistoryItem::Message {
+                bytes,
+                text: Some(_),
+                ..
+            } => *bytes,
             HistoryItem::Message { text: None, .. } => 0,
-        }
-    }
-
-    fn clear_cached(&mut self) {
-        match self {
-            HistoryItem::File { cache, .. } => {
-                if let Some(c) = cache.take() {
-                    let _ = fs::remove_file(&c.path);
-                    let _ = cleanup_empty_dir(c.path.parent());
-                }
-            }
-            HistoryItem::Message { text, bytes, .. } => {
-                *text = None;
-                *bytes = 0;
-            }
         }
     }
 }
@@ -202,10 +162,6 @@ impl HistoryStore {
         }
     }
 
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
     pub fn cache_root(&self) -> &Path {
         &self.cache_root
     }
@@ -222,11 +178,7 @@ impl HistoryStore {
         fs::create_dir_all(&self.cache_root)
             .map_err(|e| format!("Could not create {}: {e}", self.cache_root.display()))?;
         let tmp = self.path.with_extension("json.tmp");
-        let data = serde_json::to_vec_pretty(&PersistedStore {
-            version: self.version,
-            entries: &self.entries,
-        })
-        .map_err(|e| e.to_string())?;
+        let data = serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?;
         fs::write(&tmp, data).map_err(|e| format!("Could not write {}: {e}", tmp.display()))?;
         fs::rename(&tmp, &self.path)
             .map_err(|e| format!("Could not replace {}: {e}", self.path.display()))
@@ -283,14 +235,14 @@ impl HistoryStore {
         let mut target: Option<(i64, usize, usize)> = None; // (cache_added, entry_index, item_index)
         for (ei, entry) in self.entries.iter().enumerate() {
             for (ii, item) in entry.items.iter().enumerate() {
-                if let HistoryItem::File {
-                    cache: Some(c), ..
-                } = item
-                {
+                if let HistoryItem::File { cache: Some(c), .. } = item {
                     let key = (c.added, ei, ii);
                     let better = match target {
                         None => true,
-                        Some(t) => key.0 < t.0 || (key.0 == t.0 && (key.1 > t.1 || (key.1 == t.1 && key.2 > t.2))),
+                        Some(t) => {
+                            key.0 < t.0
+                                || (key.0 == t.0 && (key.1 > t.1 || (key.1 == t.1 && key.2 > t.2)))
+                        }
                     };
                     if better {
                         target = Some(key);
@@ -303,7 +255,7 @@ impl HistoryStore {
                 if let Some(HistoryItem::File { cache, .. }) = entry.items.get_mut(ii) {
                     if let Some(c) = cache.take() {
                         let _ = fs::remove_file(&c.path);
-                        let _ = cleanup_empty_dir(c.path.parent());
+                        cleanup_empty_dir(c.path.parent());
                     }
                     return true;
                 }
@@ -376,7 +328,11 @@ impl HistoryStore {
 
     pub fn remove_item(&mut self, item_id: &str) -> RemoveOutcome {
         for ei in 0..self.entries.len() {
-            if let Some(ii) = self.entries[ei].items.iter().position(|i| i.id() == item_id) {
+            if let Some(ii) = self.entries[ei]
+                .items
+                .iter()
+                .position(|i| i.id() == item_id)
+            {
                 let item = self.entries[ei].items.remove(ii);
                 remove_item_cache(&item);
                 if self.entries[ei].items.is_empty() {
@@ -411,6 +367,7 @@ impl HistoryStore {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn cache_dir_for(&self, entry_id: &str) -> PathBuf {
         self.cache_root.join(entry_id)
     }
@@ -419,27 +376,15 @@ impl HistoryStore {
 fn remove_item_cache(item: &HistoryItem) {
     if let HistoryItem::File { cache: Some(c), .. } = item {
         let _ = fs::remove_file(&c.path);
-        let _ = cleanup_empty_dir(c.path.parent());
+        cleanup_empty_dir(c.path.parent());
     }
 }
 
-fn cleanup_empty_dir(dir: Option<&Path>) -> io::Result<()> {
+fn cleanup_empty_dir(dir: Option<&Path>) {
     if let Some(dir) = dir {
-        if dir.is_dir() {
-            // only remove if empty
-            let mut entries = fs::read_dir(dir)?;
-            if entries.next().is_none() {
-                fs::remove_dir(dir)?;
-            }
-        }
+        // Fails harmlessly when the directory is not empty and is still in use.
+        let _ = fs::remove_dir(dir);
     }
-    Ok(())
-}
-
-#[derive(Serialize)]
-struct PersistedStore<'a> {
-    version: u32,
-    entries: &'a [HistoryEntry],
 }
 
 pub fn default_data_dir() -> PathBuf {
@@ -451,10 +396,7 @@ pub fn default_cache_dir() -> PathBuf {
 }
 
 pub fn now_unix() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
+    gtk::glib::real_time()
 }
 
 /// Copy a received file into the history cache if it qualifies.
@@ -498,7 +440,13 @@ fn sanitize_cache_name(name: &str) -> String {
         .unwrap_or("file");
     let mut out: String = base
         .chars()
-        .map(|c| if c.is_control() || c == '/' || c == '\\' { '_' } else { c })
+        .map(|c| {
+            if c.is_control() || c == '/' || c == '\\' {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
     if out.is_empty() {
         out.push_str("file");
@@ -515,10 +463,6 @@ pub fn message_bytes(text: &str) -> u64 {
 }
 
 pub fn make_item_id() -> String {
-    uuid::Uuid::new_v4().to_string()
-}
-
-pub fn make_entry_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
@@ -724,7 +668,16 @@ mod tests {
             id: "e".into(),
             alias: "A".into(),
             timestamp: 1,
-            items: vec![file_item("f", &orig, Some(CachedCopy { path: cpath.clone(), bytes: 1, added: 1 }), 1)],
+            items: vec![file_item(
+                "f",
+                &orig,
+                Some(CachedCopy {
+                    path: cpath.clone(),
+                    bytes: 1,
+                    added: 1,
+                }),
+                1,
+            )],
         });
         store.remove_item("f");
         assert!(orig.exists());

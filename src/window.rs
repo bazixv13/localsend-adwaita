@@ -1,15 +1,13 @@
 use crate::application::APP_ID;
 use crate::core::{Core, Event, IncomingFileInfo, IncomingRequest};
-use crate::history::{self, HistoryEntry, HistoryItem, RemoveOutcome, Resolution};
+use crate::history::{HistoryEntry, HistoryItem, Resolution};
 use crate::sender;
 use crate::util;
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
 use libadwaita as adw;
 use std::cell::{Cell, RefCell};
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -27,10 +25,8 @@ pub fn build(app: &adw::Application, core: Arc<Core>) -> adw::ApplicationWindow 
     ui.spawn_event_loop(receiver);
     ui.refresh_devices();
     ui.show_empty();
-    let _ = core;
     ui.window.clone()
 }
-
 
 struct Ui {
     window: adw::ApplicationWindow,
@@ -102,6 +98,7 @@ struct Ui {
 }
 
 /// Something waiting for a device before it can be sent.
+#[derive(Clone)]
 enum QueueItem {
     Files {
         paths: Vec<PathBuf>,
@@ -149,7 +146,11 @@ impl QueueItem {
             parts.push(util::human_bytes(bytes));
         }
         if folders > 0 {
-            parts.push(format!("{} folder{}", folders, if folders == 1 { "" } else { "s" }));
+            parts.push(format!(
+                "{} folder{}",
+                folders,
+                if folders == 1 { "" } else { "s" }
+            ));
         }
         if parts.is_empty() {
             parts.push("Files".to_string());
@@ -672,7 +673,7 @@ impl Ui {
             notification_at: Cell::new(None),
             pending_text: RefCell::new(None),
             pending_decision: RefCell::new(None),
-                    history_dialog: RefCell::new(None),
+            history_dialog: RefCell::new(None),
         }
     }
 
@@ -815,6 +816,29 @@ impl Ui {
         *self.background.borrow_mut() = hidden;
         if !hidden {
             self.sync_transfer_view();
+        } else {
+            self.release_background_caches();
+            Self::trim_memory();
+            glib::idle_add_local_once(Self::trim_memory);
+            glib::timeout_add_seconds_local_once(2, Self::trim_memory);
+        }
+    }
+
+    fn release_background_caches(&self) {
+        // Drop cached dialogs so their widget trees can be freed while hidden.
+        if let Some((dialog, _)) = self.history_dialog.borrow_mut().take() {
+            dialog.force_close();
+        }
+    }
+
+    fn trim_memory() {
+        #[cfg(all(target_os = "linux", target_env = "gnu"))]
+        unsafe {
+            // Return freed heap pages to the OS when the window is hidden.
+            extern "C" {
+                fn malloc_trim(pad: usize) -> std::ffi::c_int;
+            }
+            let _ = malloc_trim(0);
         }
     }
 
@@ -998,10 +1022,7 @@ impl Ui {
         self.window.add_controller(drop_target);
     }
 
-    fn spawn_event_loop(
-        self: &Rc<Self>,
-        receiver: async_channel::Receiver<Event>,
-    ) {
+    fn spawn_event_loop(self: &Rc<Self>, receiver: async_channel::Receiver<Event>) {
         let ui = self.clone();
         glib::spawn_future_local(async move {
             while let Ok(event) = receiver.recv().await {
@@ -1009,8 +1030,6 @@ impl Ui {
             }
         });
     }
-
-
 
     fn handle_event(self: &Rc<Self>, event: Event) {
         match event {
@@ -1122,8 +1141,7 @@ impl Ui {
                     return;
                 }
                 if let Some(app) = self.window.application() {
-                    let notification =
-                        gio::Notification::new(&format!("Message from {alias}"));
+                    let notification = gio::Notification::new(&format!("Message from {alias}"));
                     notification.set_body(Some(&summarize(&body)));
                     notification.set_default_action("app.show-pending-text");
                     app.send_notification(Some(NOTIFICATION_ID), &notification);
@@ -1495,37 +1513,143 @@ impl Ui {
         while let Some(child) = self.queue_list.first_child() {
             self.queue_list.remove(&child);
         }
-        for (index, item) in self.queue.borrow().iter().enumerate() {
-            let (label, detail, icon_name) = match item {
+        let queue_len = self.queue.borrow().len();
+        for index in 0..queue_len {
+            let item = self.queue.borrow()[index].clone();
+            match item {
                 QueueItem::Files {
-                    label, detail, ..
-                } => (label.clone(), detail.clone(), "document-symbolic"),
-                QueueItem::Text {
-                    label, detail, ..
-                } => (label.clone(), detail.clone(), "chat-message-new-symbolic"),
-            };
-            let row = adw::ActionRow::builder()
-                .title(&label)
-                .subtitle(&detail)
-                .build();
-            let icon = gtk::Image::from_icon_name(icon_name);
-            icon.add_css_class("dim-label");
-            row.add_prefix(&icon);
-            let remove = gtk::Button::from_icon_name("window-close-symbolic");
-            remove.add_css_class("flat");
-            remove.set_valign(gtk::Align::Center);
-            remove.set_tooltip_text(Some("Remove from the queue"));
-            let ui = self.clone();
-            remove.connect_clicked(move |_| {
-                if index < ui.queue.borrow().len() {
-                    ui.queue.borrow_mut().remove(index);
+                    paths,
+                    label,
+                    detail,
+                } => {
+                    let icon_name = queue_icon_for_paths(&paths);
+                    let remove = gtk::Button::from_icon_name("window-close-symbolic");
+                    remove.add_css_class("flat");
+                    remove.set_valign(gtk::Align::Center);
+                    remove.set_tooltip_text(Some("Remove from the queue"));
+                    let ui = self.clone();
+                    remove.connect_clicked(move |_| {
+                        if index < ui.queue.borrow().len() {
+                            ui.queue.borrow_mut().remove(index);
+                        }
+                        ui.refresh_queue();
+                    });
+
+                    if paths.len() > 1 {
+                        let row = adw::ExpanderRow::builder()
+                            .title(&label)
+                            .subtitle(&detail)
+                            .build();
+                        row.set_title_lines(1);
+                        row.set_subtitle_lines(1);
+                        let icon = gtk::Image::from_icon_name(icon_name);
+                        icon.add_css_class("dim-label");
+                        row.add_prefix(&icon);
+                        row.add_suffix(&remove);
+
+                        for (file_index, path) in paths.iter().enumerate() {
+                            let name = path
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_else(|| path.to_string_lossy().to_string());
+                            let subtitle = match std::fs::metadata(path) {
+                                Ok(meta) if meta.is_file() => util::human_bytes(meta.len()),
+                                Ok(_) => "Folder".to_string(),
+                                Err(_) => "Unavailable".to_string(),
+                            };
+                            let child = adw::ActionRow::builder()
+                                .title(&name)
+                                .subtitle(&subtitle)
+                                .build();
+                            child.set_title_lines(1);
+                            child.set_subtitle_lines(1);
+                            let child_icon = gtk::Image::from_icon_name(&icon_for_path(path));
+                            child_icon.add_css_class("dim-label");
+                            child.add_prefix(&child_icon);
+
+                            let child_remove = gtk::Button::from_icon_name("window-close-symbolic");
+                            child_remove.add_css_class("flat");
+                            child_remove.set_valign(gtk::Align::Center);
+                            child_remove.set_tooltip_text(Some("Remove this file"));
+                            let ui = self.clone();
+                            child_remove.connect_clicked(move |_| {
+                                let mut queue = ui.queue.borrow_mut();
+                                if index >= queue.len() {
+                                    drop(queue);
+                                    ui.refresh_queue();
+                                    return;
+                                }
+                                let remove_group = match &mut queue[index] {
+                                    QueueItem::Files { paths, .. } => {
+                                        if file_index < paths.len() {
+                                            paths.remove(file_index);
+                                        }
+                                        if paths.is_empty() {
+                                            true
+                                        } else if paths.len() == 1 {
+                                            let remaining = std::mem::take(paths);
+                                            queue[index] = QueueItem::files(remaining);
+                                            false
+                                        } else {
+                                            let remaining = std::mem::take(paths);
+                                            queue[index] = QueueItem::files(remaining);
+                                            false
+                                        }
+                                    }
+                                    _ => false,
+                                };
+                                if remove_group {
+                                    queue.remove(index);
+                                }
+                                drop(queue);
+                                ui.refresh_queue();
+                            });
+                            child.add_suffix(&child_remove);
+                            row.add_row(&child);
+                        }
+                        self.queue_list.append(&row);
+                    } else {
+                        let row = adw::ActionRow::builder()
+                            .title(&label)
+                            .subtitle(&detail)
+                            .build();
+                        row.set_title_lines(1);
+                        row.set_subtitle_lines(1);
+                        let icon = gtk::Image::from_icon_name(icon_name);
+                        icon.add_css_class("dim-label");
+                        row.add_prefix(&icon);
+                        row.add_suffix(&remove);
+                        self.queue_list.append(&row);
+                    }
                 }
-                ui.refresh_queue();
-            });
-            row.add_suffix(&remove);
-            self.queue_list.append(&row);
+                QueueItem::Text { label, detail, .. } => {
+                    let row = adw::ActionRow::builder()
+                        .title(&label)
+                        .subtitle(&detail)
+                        .build();
+                    row.set_title_lines(1);
+                    row.set_subtitle_lines(1);
+                    let icon = gtk::Image::from_icon_name("chat-message-new-symbolic");
+                    icon.add_css_class("dim-label");
+                    row.add_prefix(&icon);
+                    let remove = gtk::Button::from_icon_name("window-close-symbolic");
+                    remove.add_css_class("flat");
+                    remove.set_valign(gtk::Align::Center);
+                    remove.set_tooltip_text(Some("Remove from the queue"));
+                    let ui = self.clone();
+                    remove.connect_clicked(move |_| {
+                        if index < ui.queue.borrow().len() {
+                            ui.queue.borrow_mut().remove(index);
+                        }
+                        ui.refresh_queue();
+                    });
+                    row.add_suffix(&remove);
+                    self.queue_list.append(&row);
+                }
+            }
         }
-        self.queue_section.set_visible(!self.queue.borrow().is_empty());
+        self.queue_section
+            .set_visible(!self.queue.borrow().is_empty());
     }
 
     /// Sends everything in the queue to one device: files first, then the
@@ -2101,7 +2225,6 @@ impl Ui {
             self.begin_receiving(
                 request.session_id.clone(),
                 request.peer_alias.clone(),
-                request.files.len(),
                 request.total_bytes,
                 files_label,
             );
@@ -2119,16 +2242,14 @@ impl Ui {
         );
         let session_id = request.session_id.clone();
         let alias = request.peer_alias.clone();
-        self.pending_decision
-            .borrow_mut()
-            .replace(PendingDecision {
-                session_id: request.session_id,
-                alias: request.peer_alias,
-                files: count,
-                total_bytes: request.total_bytes,
-                files_label,
-                sender: request.decision,
-            });
+        self.pending_decision.borrow_mut().replace(PendingDecision {
+            session_id: request.session_id,
+            alias: request.peer_alias,
+            files: count,
+            total_bytes: request.total_bytes,
+            files_label,
+            sender: request.decision,
+        });
 
         // A visible window always shows the question itself.
         if self.window.is_visible() {
@@ -2154,9 +2275,12 @@ impl Ui {
     }
 
     fn show_decision(self: &Rc<Self>) {
-        let Some((alias, files, total)) = self.pending_decision.borrow().as_ref().map(|p| {
-            (p.alias.clone(), p.files, p.total_bytes)
-        }) else {
+        let Some((alias, files, total)) = self
+            .pending_decision
+            .borrow()
+            .as_ref()
+            .map(|p| (p.alias.clone(), p.files, p.total_bytes))
+        else {
             return;
         };
         self.decision_title
@@ -2183,7 +2307,6 @@ impl Ui {
             self.begin_receiving(
                 pending.session_id.clone(),
                 pending.alias.clone(),
-                pending.files,
                 pending.total_bytes,
                 pending.files_label,
             );
@@ -2264,7 +2387,6 @@ impl Ui {
         self: &Rc<Self>,
         session_id: String,
         alias: String,
-        count: usize,
         total: u64,
         files_label: String,
     ) {
@@ -2348,6 +2470,8 @@ impl Ui {
             let ui = self.clone();
             move |_| {
                 ui.history_dialog.borrow_mut().take();
+                Ui::trim_memory();
+                glib::idle_add_local_once(Ui::trim_memory);
             }
         });
 
@@ -2363,18 +2487,13 @@ impl Ui {
         self.rebuild_history_page(&page, &dialog);
     }
 
-    fn rebuild_history_page(self: &Rc<Self>, page: &adw::PreferencesPage, dialog: &adw::PreferencesDialog) {
-        // Remove all existing groups safely.
-        let mut groups: Vec<adw::PreferencesGroup> = Vec::new();
-        let mut child = page.first_child();
-        while let Some(widget) = child {
-            if let Ok(group) = widget.clone().downcast::<adw::PreferencesGroup>() {
-                groups.push(group);
-            }
-            child = widget.next_sibling();
-        }
-        for group in groups {
-            page.remove(&group);
+    fn rebuild_history_page(
+        self: &Rc<Self>,
+        page: &adw::PreferencesPage,
+        dialog: &adw::PreferencesDialog,
+    ) {
+        while let Some(child) = page.first_child() {
+            child.unparent();
         }
 
         dialog.set_title("History");
@@ -2410,7 +2529,11 @@ impl Ui {
         }
     }
 
-    fn build_history_entry_row(self: &Rc<Self>, entry: &HistoryEntry, dialog: &adw::PreferencesDialog) -> adw::ExpanderRow {
+    fn build_history_entry_row(
+        self: &Rc<Self>,
+        entry: &HistoryEntry,
+        dialog: &adw::PreferencesDialog,
+    ) -> adw::ExpanderRow {
         let title = transfer_title(entry);
         let subtitle = format!(
             "From {} · {} · {}",
@@ -2429,10 +2552,15 @@ impl Ui {
         row
     }
 
-    fn build_history_item_row(self: &Rc<Self>, alias: &str, item: &HistoryItem, dialog: &adw::PreferencesDialog) -> adw::ActionRow {
+    fn build_history_item_row(
+        self: &Rc<Self>,
+        alias: &str,
+        item: &HistoryItem,
+        dialog: &adw::PreferencesDialog,
+    ) -> adw::ActionRow {
         let row = adw::ActionRow::new();
         match item {
-            HistoryItem::File { name, path, .. } => {
+            HistoryItem::File { name, .. } => {
                 let icon = gtk::Image::from_icon_name("text-x-generic-symbolic");
                 row.add_prefix(&icon);
                 row.set_title(name);
@@ -2474,7 +2602,6 @@ impl Ui {
                 pop.set_child(Some(&boxp));
                 menu_button.set_popover(Some(&pop));
                 row.add_suffix(&menu_button);
-                let _ = path;
             }
             HistoryItem::Message { text, .. } => {
                 let icon = gtk::Image::from_icon_name("mail-message-new-symbolic");
@@ -2484,7 +2611,11 @@ impl Ui {
                     .map(first_line)
                     .unwrap_or_else(|| "Message removed from cache".to_string());
                 row.set_title(&preview);
-                row.set_subtitle(if text.is_some() { "Text message" } else { "No longer available" });
+                row.set_subtitle(if text.is_some() {
+                    "Text message"
+                } else {
+                    "No longer available"
+                });
 
                 if text.is_some() {
                     row.set_activatable(true);
@@ -2546,6 +2677,7 @@ impl Ui {
                 self.copy_text(&path.to_string_lossy());
                 self.toast("Path copied");
             }
+            Resolution::Message => self.history_copy_message(item_id),
             Resolution::Missing => {
                 let alert = adw::AlertDialog::builder()
                     .heading("No longer available")
@@ -2562,18 +2694,23 @@ impl Ui {
         match self.core.history_resolve(item_id) {
             Resolution::Original(path) => {
                 let uri = format!("file://{}", path.to_string_lossy());
-                if gio::AppInfo::launch_default_for_uri(&uri, None::<&gio::AppLaunchContext>).is_err() {
+                if gio::AppInfo::launch_default_for_uri(&uri, None::<&gio::AppLaunchContext>)
+                    .is_err()
+                {
                     self.toast("Could not open this file");
                 }
             }
             Resolution::Cached(path) => {
                 let uri = format!("file://{}", path.to_string_lossy());
-                if gio::AppInfo::launch_default_for_uri(&uri, None::<&gio::AppLaunchContext>).is_err() {
+                if gio::AppInfo::launch_default_for_uri(&uri, None::<&gio::AppLaunchContext>)
+                    .is_err()
+                {
                     self.toast("Could not open this file");
                 } else {
                     self.toast("Opening the cached copy");
                 }
             }
+            Resolution::Message => self.toast("Messages are not files"),
             Resolution::Missing => {
                 let alert = adw::AlertDialog::builder()
                     .heading("No longer available")
@@ -2587,7 +2724,15 @@ impl Ui {
     }
 
     fn history_copy_message(&self, item_id: &str) {
-        if let Some(HistoryItem::Message { text: Some(text), .. }) = self.core.history_snapshot().iter().flat_map(|e| e.items.iter()).find(|i| i.id() == item_id) {
+        if let Some(HistoryItem::Message {
+            text: Some(text), ..
+        }) = self
+            .core
+            .history_snapshot()
+            .iter()
+            .flat_map(|e| e.items.iter())
+            .find(|i| i.id() == item_id)
+        {
             self.copy_text(text);
             self.toast("Message copied");
         } else {
@@ -2596,14 +2741,28 @@ impl Ui {
     }
 
     fn history_show_message(self: &Rc<Self>, item_id: &str, alias: &str) {
-        if let Some(HistoryItem::Message { text: Some(text), .. }) = self.core.history_snapshot().iter().flat_map(|e| e.items.iter()).find(|i| i.id() == item_id).cloned() {
+        if let Some(HistoryItem::Message {
+            text: Some(text), ..
+        }) = self
+            .core
+            .history_snapshot()
+            .iter()
+            .flat_map(|e| e.items.iter())
+            .find(|i| i.id() == item_id)
+            .cloned()
+        {
             self.show_text_messages(alias, vec![text], false);
         } else {
             self.toast("Message is no longer available");
         }
     }
 
-    fn history_delete_dialog(self: &Rc<Self>, item_id: &str, is_file: bool, dialog: &adw::PreferencesDialog) {
+    fn history_delete_dialog(
+        self: &Rc<Self>,
+        item_id: &str,
+        is_file: bool,
+        dialog: &adw::PreferencesDialog,
+    ) {
         let alert = adw::AlertDialog::builder()
             .heading("Remove from History")
             .body(if is_file {
@@ -2622,23 +2781,22 @@ impl Ui {
         alert.set_close_response("cancel");
         let ui = self.clone();
         let id = item_id.to_string();
-        alert.choose(Some(dialog), gio::Cancellable::NONE, move |resp| {
-            match resp.as_str() {
+        alert.choose(
+            Some(dialog),
+            gio::Cancellable::NONE,
+            move |resp| match resp.as_str() {
                 "remove" => {
                     ui.core.history_remove_item(&id);
                     ui.toast("Removed from history");
                 }
-                "delete_file" => {
-                    match ui.core.history_delete_file(&id) {
-                        Ok(()) => ui.toast("File deleted"),
-                        Err(err) => ui.toast(&err),
-                    }
-                }
+                "delete_file" => match ui.core.history_delete_file(&id) {
+                    Ok(()) => ui.toast("File deleted"),
+                    Err(err) => ui.toast(&err),
+                },
                 _ => {}
-            }
-        });
+            },
+        );
     }
-
 
     fn show_settings(self: &Rc<Self>) {
         let config = self.core.config();
@@ -2791,9 +2949,7 @@ impl Ui {
 
         page.add(&receiving_group);
 
-        let history_group = adw::PreferencesGroup::builder()
-            .title("History")
-            .build();
+        let history_group = adw::PreferencesGroup::builder().title("History").build();
 
         let history_cache_row = adw::SwitchRow::builder()
             .title("Cache Received Files in History")
@@ -2858,9 +3014,7 @@ impl Ui {
 
         let tray_row = adw::SwitchRow::builder()
             .title("Show Tray Icon")
-            .subtitle(
-                "Needs a StatusNotifierWatcher on the desktop; takes effect after a restart.",
-            )
+            .subtitle("Needs a StatusNotifierWatcher on the desktop; takes effect after a restart.")
             .build();
         tray_row.set_active(config.tray_icon);
         tray_row.connect_active_notify({
@@ -2890,6 +3044,10 @@ impl Ui {
 
         page.add(&background_group);
         dialog.add(&page);
+        dialog.connect_closed(|_| {
+            Ui::trim_memory();
+            glib::idle_add_local_once(Ui::trim_memory);
+        });
         dialog.present(Some(&self.window));
     }
 
@@ -2918,6 +3076,10 @@ impl Ui {
             Some("Based on LocalSend by"),
             &["The LocalSend contributors"],
         );
+        dialog.connect_closed(|_| {
+            Ui::trim_memory();
+            glib::idle_add_local_once(Ui::trim_memory);
+        });
         dialog.present(Some(&self.window));
     }
 
@@ -2928,14 +3090,10 @@ impl Ui {
     }
 
     fn copy_text(&self, text: &str) {
-        if copy_to_clipboard(text).is_err() {
-            if let Some(display) = gdk::Display::default() {
-                display.clipboard().set_text(text);
-            }
+        if let Some(display) = gdk::Display::default() {
+            display.clipboard().set_text(text);
         }
     }
-
-
 }
 
 fn progress_percent(done: u64, total: u64) -> u64 {
@@ -2969,18 +3127,6 @@ fn open_folder(path: &Path) {
     if let Err(error) = gio::AppInfo::launch_default_for_uri(&uri, None::<&gio::AppLaunchContext>) {
         eprintln!("Could not open {uri}: {error}");
     }
-}
-
-fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
-    let mut child = Command::new("wl-copy")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(text.as_bytes())?;
-    }
-    Ok(())
 }
 
 const SHORTCUTS_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -3043,29 +3189,32 @@ const SHORTCUTS_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </interface>
 "#;
 
-
 fn day_label(ts: i64) -> String {
-    let now = glib::DateTime::now_local().ok();
-    let dt = glib::DateTime::from_unix_local(ts).ok();
-    match (now, dt) {
-        (Some(now), Some(dt)) => {
-            let today = now.format("%Y-%m-%d").ok().map(|s| s.to_string()).unwrap_or_default();
-            let that = dt.format("%Y-%m-%d").ok().map(|s| s.to_string()).unwrap_or_default();
-            if today == that {
-                "Today".to_string()
-            } else if let Ok(y) = now.add_days(-1) {
-                let yday = y.format("%Y-%m-%d").ok().map(|s| s.to_string()).unwrap_or_default();
-                if yday == that {
-                    "Yesterday".to_string()
-                } else {
-                    dt.format("%e %B %Y").ok().map(|s| s.trim().to_string()).unwrap_or(that.clone())
-                }
-            } else {
-                dt.format("%e %B %Y").ok().map(|s| s.trim().to_string()).unwrap_or(that.clone())
-            }
-        }
-        _ => "Earlier".to_string(),
+    let (Ok(now), Ok(dt)) = (
+        glib::DateTime::now_local(),
+        glib::DateTime::from_unix_local(ts),
+    ) else {
+        return "Earlier".to_string();
+    };
+    let that = (dt.year(), dt.month(), dt.day_of_month());
+    if that == (now.year(), now.month(), now.day_of_month()) {
+        return "Today".to_string();
     }
+    if let Ok(yesterday) = now.add_days(-1) {
+        if that
+            == (
+                yesterday.year(),
+                yesterday.month(),
+                yesterday.day_of_month(),
+            )
+        {
+            return "Yesterday".to_string();
+        }
+    }
+    dt.format("%e %B %Y")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "Earlier".to_string())
 }
 
 fn time_label(ts: i64) -> String {
@@ -3089,7 +3238,11 @@ fn transfer_title(entry: &HistoryEntry) -> String {
         (0, m) => format!("{m} messages"),
         (1, 0) => "1 file".to_string(),
         (f, 0) => format!("{f} files"),
-        (f, m) => format!("{f} file{} and {m} message{}", if f == 1 { "" } else { "s" }, if m == 1 { "" } else { "s" }),
+        (f, m) => format!(
+            "{f} file{} and {m} message{}",
+            if f == 1 { "" } else { "s" },
+            if m == 1 { "" } else { "s" }
+        ),
     }
 }
 
@@ -3122,11 +3275,55 @@ fn receive_files_label(files: &[IncomingFileInfo], message_count: usize) -> Stri
     }
 }
 
+fn queue_icon_for_paths(paths: &[PathBuf]) -> &'static str {
+    match paths {
+        [] => "document-symbolic",
+        [path] if path.is_dir() => "folder-symbolic",
+        [path] => icon_for_path(path),
+        _ if paths.iter().all(|path| path.is_dir()) => "folder-symbolic",
+        _ => "emblem-documents-symbolic",
+    }
+}
+
+fn icon_for_path(path: &Path) -> &'static str {
+    let mime = mime_guess::from_path(path).first_or_octet_stream();
+    match (mime.type_().as_str(), mime.subtype().as_str()) {
+        ("image", _) => "image-x-generic-symbolic",
+        ("audio", _) => "audio-x-generic-symbolic",
+        ("video", _) => "video-x-generic-symbolic",
+        ("text", _) => "text-x-generic-symbolic",
+        ("application", "pdf") => "x-office-document-symbolic",
+        (
+            "application",
+            "zip" | "x-tar" | "gzip" | "x-gzip" | "x-7z-compressed" | "x-rar-compressed" | "x-xz"
+            | "x-bzip" | "x-bzip2" | "zstd",
+        ) => "package-x-generic-symbolic",
+        (
+            "application",
+            "vnd.oasis.opendocument.text"
+            | "vnd.oasis.opendocument.spreadsheet"
+            | "vnd.oasis.opendocument.presentation"
+            | "msword"
+            | "vnd.openxmlformats-officedocument.wordprocessingml.document"
+            | "vnd.ms-excel"
+            | "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            | "vnd.ms-powerpoint"
+            | "vnd.openxmlformats-officedocument.presentationml.presentation"
+            | "rtf",
+        ) => "x-office-document-symbolic",
+        _ => "document-symbolic",
+    }
+}
+
 fn entry_total_bytes(entry: &HistoryEntry) -> u64 {
-    entry.items.iter().map(|i| match i {
-        HistoryItem::File { size, .. } => *size,
-        HistoryItem::Message { bytes, .. } => *bytes,
-    }).sum()
+    entry
+        .items
+        .iter()
+        .map(|i| match i {
+            HistoryItem::File { size, .. } => *size,
+            HistoryItem::Message { bytes, .. } => *bytes,
+        })
+        .sum()
 }
 
 fn item_subtitle(item: &HistoryItem) -> String {
@@ -3134,12 +3331,22 @@ fn item_subtitle(item: &HistoryItem) -> String {
         HistoryItem::File { size, path, .. } => {
             let size = util::human_bytes(*size);
             match item.resolution() {
-                Resolution::Original(_) => format!("{size} · {}", crate::config::display_path(path)),
+                Resolution::Original(_) => {
+                    format!("{size} · {}", crate::config::display_path(path))
+                }
                 Resolution::Cached(_) => format!("{size} · Cached copy"),
-                Resolution::Missing => format!("{size} · No longer available"),
+                Resolution::Message | Resolution::Missing => {
+                    format!("{size} · No longer available")
+                }
             }
         }
-        HistoryItem::Message { text, .. } => if text.is_some() { "Text message".to_string() } else { "No longer available".to_string() },
+        HistoryItem::Message { text, .. } => {
+            if text.is_some() {
+                "Text message".to_string()
+            } else {
+                "No longer available".to_string()
+            }
+        }
     }
 }
 
@@ -3149,6 +3356,9 @@ fn first_line(text: &str) -> String {
     if out.chars().count() > 60 {
         out = out.chars().take(57).collect::<String>() + "…";
     }
-    if out.is_empty() { "Message".to_string() } else { out }
+    if out.is_empty() {
+        "Message".to_string()
+    } else {
+        out
+    }
 }
-
