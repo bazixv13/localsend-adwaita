@@ -46,6 +46,11 @@
   </keywords>
 
   <releases>
+    <release version="0.3.42" date="2026-11-15">
+      <description>
+        <p>Build the Flatpak bundle on a plain runner so releases are produced reliably.</p>
+      </description>
+    </release>
     <release version="0.3.41" date="2026-11-15">
       <description>
         <p>Point the About dialog and app metadata at the project repository.</p>
