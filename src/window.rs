@@ -3138,28 +3138,32 @@ impl Ui {
         alert.set_close_response("cancel");
         let ui = self.clone();
         let id = item_id.to_string();
-        alert.choose(
-            Some(dialog),
-            gio::Cancellable::NONE,
-            move |resp| match resp.as_str() {
+        alert.choose(Some(dialog), gio::Cancellable::NONE, move |resp| {
+            let changed = match resp.as_str() {
                 "remove" => {
                     if ui.core.history_remove_item(&id) == crate::history::RemoveOutcome::Removed {
                         ui.toast("Removed from history");
                     } else {
                         ui.toast("History item no longer exists");
                     }
-                    ui.refresh_history_dialog();
+                    true
                 }
                 "delete_file" => {
                     match ui.core.history_delete_file(&id) {
                         Ok(()) => ui.toast("File deleted"),
                         Err(err) => ui.toast(&err),
                     }
-                    ui.refresh_history_dialog();
+                    true
                 }
-                _ => {}
-            },
-        );
+                _ => false,
+            };
+            if changed {
+                let ui_refresh = ui.clone();
+                gtk::glib::idle_add_local_once(move || {
+                    ui_refresh.refresh_history_dialog();
+                });
+            }
+        });
     }
 
     fn show_settings(self: &Rc<Self>) {
