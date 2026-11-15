@@ -6,3 +6,6 @@
 /build
 /_flatpak_build
 __pycache__/
+
+# Exported assistant/chat transcripts kept locally for reference
+freebuff-chat-*.md
