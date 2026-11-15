@@ -2819,6 +2819,12 @@ impl Ui {
 
     fn refresh_history_dialog(self: &Rc<Self>) {
         let Some((dialog, page)) = self.history_dialog.borrow().clone() else {
+            // If the history dialog is not open, we can't refresh it automatically.
+            // This means users will see the history page needs a refresh manually.
+            // The alert will show a notification that the history needs refresh.
+            if self.foreground() {
+                self.toast("History content has changed. Please close and reopen the history view.");
+            }
             return;
         };
         self.rebuild_history_page(&page, &dialog);
@@ -3020,9 +3026,8 @@ impl Ui {
         let item_id = item.id().to_string();
         let is_file = matches!(item, HistoryItem::File { .. });
         let ui = self.clone();
-        let dlg = dialog.clone();
         del_btn.connect_clicked(move |_| {
-            ui.history_delete_dialog(&item_id, is_file, &dlg);
+            ui.history_delete_dialog(&item_id, is_file);
         });
         row.add_suffix(&del_btn);
         row
@@ -3114,12 +3119,7 @@ impl Ui {
         }
     }
 
-    fn history_delete_dialog(
-        self: &Rc<Self>,
-        item_id: &str,
-        is_file: bool,
-        dialog: &adw::PreferencesDialog,
-    ) {
+    fn history_delete_dialog(self: &Rc<Self>, item_id: &str, is_file: bool) {
         let alert = adw::AlertDialog::builder()
             .heading("Remove from History")
             .body(if is_file {
@@ -3138,32 +3138,39 @@ impl Ui {
         alert.set_close_response("cancel");
         let ui = self.clone();
         let id = item_id.to_string();
-        alert.choose(Some(dialog), gio::Cancellable::NONE, move |resp| {
-            let changed = match resp.as_str() {
+        // Present on the main window so the confirmation stays above the
+        // history dialog. Window-level toasts are hidden behind that dialog,
+        // so success is shown by refreshing the list and errors get an alert.
+        alert.choose(
+            Some(&self.window),
+            gio::Cancellable::NONE,
+            move |resp| match resp.as_str() {
                 "remove" => {
-                    if ui.core.history_remove_item(&id) == crate::history::RemoveOutcome::Removed {
-                        ui.toast("Removed from history");
-                    } else {
-                        ui.toast("History item no longer exists");
-                    }
-                    true
+                    ui.core.history_remove_item(&id);
+                    let ui_refresh = ui.clone();
+                    gtk::glib::idle_add_local_once(move || {
+                        ui_refresh.refresh_history_dialog();
+                    });
                 }
                 "delete_file" => {
-                    match ui.core.history_delete_file(&id) {
-                        Ok(()) => ui.toast("File deleted"),
-                        Err(err) => ui.toast(&err),
-                    }
-                    true
+                    let result = ui.core.history_delete_file(&id);
+                    let ui_refresh = ui.clone();
+                    gtk::glib::idle_add_local_once(move || {
+                        ui_refresh.refresh_history_dialog();
+                        if let Err(err) = result {
+                            let error = adw::AlertDialog::builder()
+                                .heading("Could Not Delete File")
+                                .body(&err)
+                                .build();
+                            error.add_response("ok", "OK");
+                            error.set_default_response(Some("ok"));
+                            error.present(Some(&ui_refresh.window));
+                        }
+                    });
                 }
-                _ => false,
-            };
-            if changed {
-                let ui_refresh = ui.clone();
-                gtk::glib::idle_add_local_once(move || {
-                    ui_refresh.refresh_history_dialog();
-                });
-            }
-        });
+                _ => {}
+            },
+        );
     }
 
     fn show_settings(self: &Rc<Self>) {
