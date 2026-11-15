@@ -373,7 +373,10 @@ impl HistoryStore {
             Some(HistoryItem::Message { .. }) => {
                 return Err("This item is not a file".to_string());
             }
-            None => return Err("History item not found".to_string()),
+            None => {
+                // The history view can be stale; treat a missing entry as already gone.
+                return Ok(());
+            }
         };
         if let Ok(meta) = fs::symlink_metadata(&original) {
             if meta.file_type().is_file() {

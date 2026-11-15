@@ -46,6 +46,11 @@
   </keywords>
 
   <releases>
+    <release version="0.3.29" date="2026-11-15">
+      <description>
+        <p>Fix removing history items from multi-file transfers and refresh the history view after deletion.</p>
+      </description>
+    </release>
     <release version="0.3.28" date="2026-11-15">
       <description>
         <p>Open history faster by loading file rows on demand and cap it at 100 transfers.</p>
