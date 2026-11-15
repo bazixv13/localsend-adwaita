@@ -7,6 +7,7 @@ use adw::prelude::*;
 use gtk::{gdk, gio, glib};
 use libadwaita as adw;
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -105,6 +106,7 @@ struct Ui {
     pending_decision: RefCell<Option<PendingDecision>>,
     history_dialog: RefCell<Option<(adw::PreferencesDialog, adw::PreferencesPage)>>,
     history_groups: RefCell<Vec<adw::PreferencesGroup>>,
+    history_expanded: RefCell<HashSet<String>>,
 }
 
 /// Something waiting for a device before it can be sent.
@@ -777,6 +779,7 @@ impl Ui {
             pending_decision: RefCell::new(None),
             history_dialog: RefCell::new(None),
             history_groups: RefCell::new(Vec::new()),
+            history_expanded: RefCell::new(HashSet::new()),
         }
     }
 
@@ -1126,6 +1129,17 @@ impl Ui {
         action.connect_activate({
             let ui = self.clone();
             move |_, _| ui.show_history()
+        });
+        self.window.add_action(&action);
+
+        let action = gio::SimpleAction::new("history-copy-item", Some(glib::VariantTy::STRING));
+        action.connect_activate({
+            let ui = self.clone();
+            move |_, param| {
+                if let Some(id) = param.and_then(|value| value.get::<String>()) {
+                    ui.history_copy_item(&id);
+                }
+            }
         });
         self.window.add_action(&action);
 
@@ -2810,6 +2824,7 @@ impl Ui {
             move |_| {
                 ui.history_dialog.borrow_mut().take();
                 ui.history_groups.borrow_mut().clear();
+                ui.history_expanded.borrow_mut().clear();
                 Ui::trim_memory();
                 glib::idle_add_local_once(Ui::trim_memory);
             }
@@ -2840,13 +2855,18 @@ impl Ui {
         page: &adw::PreferencesPage,
         dialog: &adw::PreferencesDialog,
     ) {
+        dialog.set_title("History");
+
+        let entries = self.core.history_snapshot();
+        let live_ids: HashSet<String> = entries.iter().map(|e| e.id.clone()).collect();
+        self.history_expanded
+            .borrow_mut()
+            .retain(|id| live_ids.contains(id));
+
         for group in self.history_groups.borrow_mut().drain(..) {
             page.remove(&group);
         }
 
-        dialog.set_title("History");
-
-        let entries = self.core.history_snapshot();
         if entries.is_empty() {
             let group = adw::PreferencesGroup::new();
             let status = adw::StatusPage::builder()
@@ -2863,7 +2883,7 @@ impl Ui {
 
         let mut current_day: Option<String> = None;
         let mut group: Option<adw::PreferencesGroup> = None;
-        for entry in entries {
+        for entry in &entries {
             let day = day_label(entry.timestamp);
             if current_day.as_deref() != Some(day.as_str()) {
                 let g = adw::PreferencesGroup::builder().title(&day).build();
@@ -2872,10 +2892,13 @@ impl Ui {
                 group = Some(g);
                 current_day = Some(day);
             }
-            if let Some(g) = group.as_ref() {
-                let row = self.build_history_entry_row(&entry, dialog);
-                g.add(&row);
-            }
+            let Some(g) = group.as_ref() else {
+                continue;
+            };
+
+            let is_expanded = self.history_expanded.borrow().contains(&entry.id);
+            let row = self.build_history_entry_row(entry, dialog, is_expanded);
+            g.add(&row);
         }
     }
 
@@ -2883,6 +2906,7 @@ impl Ui {
         self: &Rc<Self>,
         entry: &HistoryEntry,
         dialog: &adw::PreferencesDialog,
+        restore_expanded: bool,
     ) -> adw::ExpanderRow {
         let title = transfer_title(entry);
         let subtitle = format!(
@@ -2896,22 +2920,44 @@ impl Ui {
             .subtitle(&subtitle)
             .build();
         // A transfer can contain hundreds of files. Building rows for every
-        // collapsed entry made opening/scrolling the history dialog laggy, so
-        // only populate the children when the user actually expands the row.
-        let items = entry.items.clone();
-        let alias = entry.alias.clone();
+        // entry upfront made opening/scrolling laggy, so populate lazily and in
+        // small chunks to keep expand/collapse responsive.
+        let items = Rc::new(entry.items.clone());
+        let alias = Rc::new(entry.alias.clone());
         let dialog = dialog.clone();
         let ui = self.clone();
-        let populated = std::rc::Rc::new(std::cell::Cell::new(false));
-        row.connect_notify_local(Some("expanded"), move |row, _| {
-            if !row.is_expanded() || populated.replace(true) {
-                return;
-            }
-            for item in &items {
-                let child = ui.build_history_item_row(&alias, item, &dialog);
-                row.add_row(&child);
+        let entry_id = entry.id.clone();
+        let populated = Rc::new(Cell::new(false));
+
+        row.connect_notify_local(Some("expanded"), {
+            let ui = ui.clone();
+            let entry_id = entry_id.clone();
+            let items = items.clone();
+            let alias = alias.clone();
+            let dialog = dialog.clone();
+            let populated = populated.clone();
+            move |row, _| {
+                if !row.is_expanded() {
+                    ui.history_expanded.borrow_mut().remove(&entry_id);
+                    return;
+                }
+                ui.history_expanded.borrow_mut().insert(entry_id.clone());
+                if populated.replace(true) {
+                    return;
+                }
+                // Filling in one pass lets GTK queue a single layout instead of
+                // one per idle tick, which made expanding large transfers janky.
+                for item in items.iter() {
+                    let child = ui.build_history_item_row(&alias, item, &dialog);
+                    row.add_row(&child);
+                }
             }
         });
+
+        if restore_expanded {
+            row.set_expanded(true);
+        }
+
         row
     }
 
@@ -2922,13 +2968,16 @@ impl Ui {
         dialog: &adw::PreferencesDialog,
     ) -> adw::ActionRow {
         let row = adw::ActionRow::new();
+        // Checking whether a file still exists hits the filesystem, so resolve
+        // once per row instead of once per use.
+        let resolution = item.resolution();
         match item {
             HistoryItem::File { name, .. } => {
                 let icon = gtk::Image::from_icon_name("text-x-generic-symbolic");
                 row.add_prefix(&icon);
                 row.set_title(name);
-                row.set_subtitle(&item_subtitle(item));
-                if matches!(item.resolution(), Resolution::Missing) {
+                row.set_subtitle(&item_subtitle(item, &resolution));
+                if matches!(resolution, Resolution::Missing) {
                     row.add_css_class("dim-label");
                 } else {
                     row.set_activatable(true);
@@ -2940,31 +2989,7 @@ impl Ui {
                     });
                 }
 
-                let menu_button = gtk::MenuButton::builder()
-                    .icon_name("view-more-symbolic")
-                    .valign(gtk::Align::Center)
-                    .tooltip_text("More options")
-                    .build();
-                menu_button.add_css_class("flat");
-                let pop = gtk::Popover::new();
-                let boxp = gtk::Box::new(gtk::Orientation::Vertical, 0);
-                let copy_btn = gtk::Button::with_label("Copy Path");
-                copy_btn.add_css_class("flat");
-                if matches!(item.resolution(), Resolution::Missing) {
-                    copy_btn.set_sensitive(false);
-                }
-                let item_id_copy = item.id().to_string();
-                let ui1 = self.clone();
-                let pop1 = pop.clone();
-                let dlg1 = dialog.clone();
-                copy_btn.connect_clicked(move |_| {
-                    pop1.popdown();
-                    ui1.history_copy_item(&item_id_copy, &dlg1);
-                });
-                boxp.append(&copy_btn);
-                pop.set_child(Some(&boxp));
-                menu_button.set_popover(Some(&pop));
-                row.add_suffix(&menu_button);
+                row.add_suffix(&history_item_menu("Copy Path", item.id()));
             }
             HistoryItem::Message { text, .. } => {
                 let icon = gtk::Image::from_icon_name("mail-message-new-symbolic");
@@ -2990,30 +3015,7 @@ impl Ui {
                     });
                 }
 
-                let menu_button = gtk::MenuButton::builder()
-                    .icon_name("view-more-symbolic")
-                    .valign(gtk::Align::Center)
-                    .tooltip_text("More options")
-                    .build();
-                menu_button.add_css_class("flat");
-                let pop = gtk::Popover::new();
-                let boxp = gtk::Box::new(gtk::Orientation::Vertical, 0);
-                let copy_btn = gtk::Button::with_label("Copy Text");
-                copy_btn.add_css_class("flat");
-                if text.is_none() {
-                    copy_btn.set_sensitive(false);
-                }
-                let item_id_copy = item.id().to_string();
-                let ui1 = self.clone();
-                let pop1 = pop.clone();
-                copy_btn.connect_clicked(move |_| {
-                    pop1.popdown();
-                    ui1.history_copy_message(&item_id_copy);
-                });
-                boxp.append(&copy_btn);
-                pop.set_child(Some(&boxp));
-                menu_button.set_popover(Some(&pop));
-                row.add_suffix(&menu_button);
+                row.add_suffix(&history_item_menu("Copy Text", item.id()));
             }
         }
 
@@ -3033,7 +3035,7 @@ impl Ui {
         row
     }
 
-    fn history_copy_item(self: &Rc<Self>, item_id: &str, dialog: &adw::PreferencesDialog) {
+    fn history_copy_item(self: &Rc<Self>, item_id: &str) {
         match self.core.history_resolve(item_id) {
             Resolution::Original(path) | Resolution::Cached(path) => {
                 self.copy_text(&path.to_string_lossy());
@@ -3041,13 +3043,17 @@ impl Ui {
             }
             Resolution::Message => self.history_copy_message(item_id),
             Resolution::Missing => {
+                let Some((dialog, _)) = self.history_dialog.borrow().clone() else {
+                    self.toast("No longer available");
+                    return;
+                };
                 let alert = adw::AlertDialog::builder()
                     .heading("No longer available")
                     .body("This file is gone from your downloads and there is no cached copy left.")
                     .build();
                 alert.add_response("ok", "OK");
                 alert.set_default_response(Some("ok"));
-                alert.present(Some(dialog));
+                alert.present(Some(&dialog));
             }
         }
     }
@@ -3714,11 +3720,29 @@ fn entry_total_bytes(entry: &HistoryEntry) -> u64 {
         .sum()
 }
 
-fn item_subtitle(item: &HistoryItem) -> String {
+/// A menu button backed by a menu model, so the popup itself is only built when
+/// the menu is opened. A popover with a real button per row was the main cost
+/// of expanding a transfer with hundreds of files.
+fn history_item_menu(label: &str, item_id: &str) -> gtk::MenuButton {
+    let menu = gio::Menu::new();
+    let entry = gio::MenuItem::new(Some(label), None);
+    entry.set_action_and_target_value(Some("win.history-copy-item"), Some(&item_id.to_variant()));
+    menu.append_item(&entry);
+    let button = gtk::MenuButton::builder()
+        .icon_name("view-more-symbolic")
+        .valign(gtk::Align::Center)
+        .tooltip_text("More options")
+        .menu_model(&menu)
+        .build();
+    button.add_css_class("flat");
+    button
+}
+
+fn item_subtitle(item: &HistoryItem, resolution: &Resolution) -> String {
     match item {
         HistoryItem::File { size, path, .. } => {
             let size = util::human_bytes(*size);
-            match item.resolution() {
+            match resolution {
                 Resolution::Original(_) => {
                     format!("{size} · {}", crate::config::display_path(path))
                 }

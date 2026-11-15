@@ -46,6 +46,31 @@
   </keywords>
 
   <releases>
+    <release version="0.3.37" date="2026-11-15">
+      <description>
+        <p>Publish automated stable and nightly builds, document installation, and clarify licensing and attribution.</p>
+      </description>
+    </release>
+    <release version="0.3.36" date="2026-11-15">
+      <description>
+        <p>Keep history entries visible after removing an item and make expanding large transfers faster.</p>
+      </description>
+    </release>
+    <release version="0.3.35" date="2026-11-15">
+      <description>
+        <p>Fix a crash when refreshing the history after deleting an item and free history rows that were kept in memory.</p>
+      </description>
+    </release>
+    <release version="0.3.34" date="2026-11-15">
+      <description>
+        <p>Reuse history rows during refresh to avoid redrawing the entire list and make expanding transfers smoother.</p>
+      </description>
+    </release>
+    <release version="0.3.33" date="2026-11-15">
+      <description>
+        <p>Keep history transfers expanded across refreshes and load their contents more smoothly.</p>
+      </description>
+    </release>
     <release version="0.3.32" date="2026-11-15">
       <description>
         <p>Fix history dialog refresh duplicating entries instead of replacing them.</p>
