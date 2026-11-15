@@ -107,6 +107,9 @@ struct Ui {
     history_dialog: RefCell<Option<(adw::PreferencesDialog, adw::PreferencesPage)>>,
     history_groups: RefCell<Vec<adw::PreferencesGroup>>,
     history_expanded: RefCell<HashSet<String>>,
+    /// Set while a history rebuild is queued, so a burst of events (a transfer
+    /// records one entry per file) collapses into a single rebuild.
+    history_refresh_queued: Cell<bool>,
 }
 
 /// Something waiting for a device before it can be sent.
@@ -780,6 +783,7 @@ impl Ui {
             history_dialog: RefCell::new(None),
             history_groups: RefCell::new(Vec::new()),
             history_expanded: RefCell::new(HashSet::new()),
+            history_refresh_queued: Cell::new(false),
         }
     }
 
@@ -2836,18 +2840,25 @@ impl Ui {
     }
 
     fn refresh_history_dialog(self: &Rc<Self>) {
-        let Some((dialog, page)) = self.history_dialog.borrow().clone() else {
-            // If the history dialog is not open, we can't refresh it automatically.
-            // This means users will see the history page needs a refresh manually.
-            // The alert will show a notification that the history needs refresh.
-            if self.foreground() {
-                self.toast(
-                    "History content has changed. Please close and reopen the history view.",
-                );
-            }
+        // Nothing to update when the view is closed: opening it always rebuilds
+        // from the current snapshot, so the content can never be stale. Toasting
+        // here fired once per received file and buried the transfer UI.
+        let Some(_open) = self.history_dialog.borrow().clone() else {
             return;
         };
-        self.rebuild_history_page(&page, &dialog);
+        // Coalesce bursts: a 198-file transfer emits 198 HistoryChanged events,
+        // and rebuilding the whole page for each one stalls the main loop.
+        if self.history_refresh_queued.replace(true) {
+            return;
+        }
+        let ui = self.clone();
+        glib::idle_add_local_once(move || {
+            ui.history_refresh_queued.set(false);
+            let Some((dialog, page)) = ui.history_dialog.borrow().clone() else {
+                return;
+            };
+            ui.rebuild_history_page(&page, &dialog);
+        });
     }
 
     fn rebuild_history_page(
