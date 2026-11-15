@@ -42,12 +42,16 @@ jobs:
             flatpak flatpak-builder ostree rsync ca-certificates
           flatpak --version
           flatpak-builder --version
-          sudo flatpak remote-add --if-not-exists flathub \
+          # Install the runtime and SDK into the user installation. A system
+          # install needs the polkit helper, which a runner refuses
+          # ("Flatpak system operation Deploy not allowed for user"), and
+          # flatpak-builder installs deps into the same scope it runs in.
+          flatpak remote-add --user --if-not-exists flathub \
             https://flathub.org/repo/flathub.flatpakrepo
 
       - name: Build bundle
         run: |
-          flatpak-builder --force-clean --disable-rofiles-fuse \
+          flatpak-builder --user --force-clean --disable-rofiles-fuse \
             --install-deps-from=flathub \
             --repo=repo \
             --default-branch=stable \
