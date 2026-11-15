@@ -2823,7 +2823,9 @@ impl Ui {
             // This means users will see the history page needs a refresh manually.
             // The alert will show a notification that the history needs refresh.
             if self.foreground() {
-                self.toast("History content has changed. Please close and reopen the history view.");
+                self.toast(
+                    "History content has changed. Please close and reopen the history view.",
+                );
             }
             return;
         };
