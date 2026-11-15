@@ -46,6 +46,11 @@
   </keywords>
 
   <releases>
+    <release version="0.3.32" date="2026-11-15">
+      <description>
+        <p>Fix history dialog refresh duplicating entries instead of replacing them.</p>
+      </description>
+    </release>
     <release version="0.3.31" date="2026-11-15">
       <description>
         <p>Refresh the history dialog after item removal once the confirmation alert closes.</p>

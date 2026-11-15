@@ -104,6 +104,7 @@ struct Ui {
     pending_text: RefCell<Option<PendingText>>,
     pending_decision: RefCell<Option<PendingDecision>>,
     history_dialog: RefCell<Option<(adw::PreferencesDialog, adw::PreferencesPage)>>,
+    history_groups: RefCell<Vec<adw::PreferencesGroup>>,
 }
 
 /// Something waiting for a device before it can be sent.
@@ -775,6 +776,7 @@ impl Ui {
             pending_text: RefCell::new(None),
             pending_decision: RefCell::new(None),
             history_dialog: RefCell::new(None),
+            history_groups: RefCell::new(Vec::new()),
         }
     }
 
@@ -2807,6 +2809,7 @@ impl Ui {
             let ui = self.clone();
             move |_| {
                 ui.history_dialog.borrow_mut().take();
+                ui.history_groups.borrow_mut().clear();
                 Ui::trim_memory();
                 glib::idle_add_local_once(Ui::trim_memory);
             }
@@ -2837,15 +2840,8 @@ impl Ui {
         page: &adw::PreferencesPage,
         dialog: &adw::PreferencesDialog,
     ) {
-        // Only groups added by this method may be removed; the page's first
-        // child is its internal container, which must stay attached.
-        let mut child = page.first_child();
-        while let Some(widget) = child {
-            let next = widget.next_sibling();
-            if let Ok(group) = widget.downcast::<adw::PreferencesGroup>() {
-                page.remove(&group);
-            }
-            child = next;
+        for group in self.history_groups.borrow_mut().drain(..) {
+            page.remove(&group);
         }
 
         dialog.set_title("History");
@@ -2861,6 +2857,7 @@ impl Ui {
             status.set_vexpand(true);
             group.add(&status);
             page.add(&group);
+            self.history_groups.borrow_mut().push(group);
             return;
         }
 
@@ -2871,6 +2868,7 @@ impl Ui {
             if current_day.as_deref() != Some(day.as_str()) {
                 let g = adw::PreferencesGroup::builder().title(&day).build();
                 page.add(&g);
+                self.history_groups.borrow_mut().push(g.clone());
                 group = Some(g);
                 current_day = Some(day);
             }
