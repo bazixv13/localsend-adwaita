@@ -18,6 +18,7 @@ use futures_util::StreamExt;
 use hyper_util::rt::TokioIo;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::io::Read as _;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -349,6 +350,27 @@ async fn prepare_upload(
     // Quick Save accepts immediately. Without it the sender waits while the
     // user decides from the notification.
     if !message_only && !config.quick_save {
+        struct PendingDecisionGuard {
+            core: Arc<Core>,
+            session_id: String,
+            active: bool,
+        }
+        impl Drop for PendingDecisionGuard {
+            fn drop(&mut self) {
+                if self.active {
+                    self.core.emit(Event::IncomingWithdrawn {
+                        session_id: self.session_id.clone(),
+                    });
+                    self.core.end_prepare();
+                }
+            }
+        }
+
+        let mut guard = PendingDecisionGuard {
+            core: core.clone(),
+            session_id: session_id.clone(),
+            active: true,
+        };
         let accepted = matches!(
             tokio::time::timeout(Duration::from_secs(60), decision_rx).await,
             Ok(Ok(true))
@@ -356,12 +378,14 @@ async fn prepare_upload(
         if !accepted {
             // Either the user declined or the sender gave up waiting; the
             // window must stop showing the request as pending.
+            guard.active = false;
             core.emit(Event::IncomingWithdrawn {
                 session_id: session_id.clone(),
             });
             core.end_prepare();
             return StatusCode::FORBIDDEN.into_response();
         }
+        guard.active = false;
     }
 
     if message_only {
@@ -403,16 +427,54 @@ async fn prepare_upload(
         }
     };
 
+    // Files whose announced checksum matches a file already in the download
+    // folder are accepted without a token: the sender uploads only the rest.
+    let mut skipped: HashMap<String, PathBuf> = HashMap::new();
+    {
+        let candidates: Vec<(String, PathBuf, u64, String)> = files
+            .iter()
+            .filter(|file| !crate::protocol::is_text_file(&file.file_type))
+            .filter_map(|file| {
+                let sha256 = request
+                    .files
+                    .get(&file.id)
+                    .or_else(|| request.files.values().find(|f| f.id == file.id))
+                    .and_then(|f| f.sha256.clone())?;
+                let relative = crate::protocol::sanitize_relative_path(&file.name)?;
+                Some((file.id.clone(), directory.join(relative), file.size, sha256))
+            })
+            .collect();
+        if !candidates.is_empty() {
+            let found = tokio::task::spawn_blocking(move || {
+                candidates
+                    .into_iter()
+                    .filter(|(_, path, size, sha256)| existing_file_matches(path, *size, sha256))
+                    .map(|(id, path, _, _)| (id, path))
+                    .collect::<Vec<_>>()
+            })
+            .await
+            .unwrap_or_default();
+            skipped.extend(found);
+        }
+    }
+
     let mut session_files = Vec::with_capacity(files.len());
     let mut tokens = HashMap::new();
     for file in &files {
-        let token = uuid::Uuid::new_v4().to_string();
-        tokens.insert(file.id.clone(), token.clone());
-        let sha256 = request
+        let announced = request
             .files
             .get(&file.id)
-            .or_else(|| request.files.values().find(|f| f.id == file.id))
-            .and_then(|f| f.sha256.clone());
+            .or_else(|| request.files.values().find(|f| f.id == file.id));
+        let sha256 = announced.and_then(|f| f.sha256.clone());
+        let metadata = announced.and_then(|f| f.metadata.clone());
+        let existing = skipped.get(&file.id).cloned();
+        let token = if existing.is_some() {
+            String::new()
+        } else {
+            let token = uuid::Uuid::new_v4().to_string();
+            tokens.insert(file.id.clone(), token.clone());
+            token
+        };
         session_files.push(Arc::new(ReceiveFile {
             id: file.id.clone(),
             name: file.name.clone(),
@@ -422,24 +484,43 @@ async fn prepare_upload(
             sha256,
             received: AtomicU64::new(0),
             done: AtomicBool::new(false),
+            existing: existing.is_some(),
+            metadata,
             text: Mutex::new(None),
-            path: Mutex::new(None),
+            path: Mutex::new(existing),
         }));
     }
 
+    let peer_port = request.info.port_or_default();
+    let peer_protocol = request.info.protocol().to_string();
+    let peer_fingerprint = request.info.fingerprint.clone();
     let session = Arc::new(ReceiveSession {
         id: session_id.clone(),
         peer_alias: peer_alias.clone(),
+        peer_ip: peer.ip().to_string(),
+        peer_port,
+        peer_protocol,
+        peer_fingerprint,
         files: session_files,
         total_bytes,
         done_bytes: AtomicU64::new(0),
+        received_bytes: AtomicU64::new(0),
         files_done: AtomicUsize::new(0),
         canceled: AtomicBool::new(false),
         directory,
         last_activity: Mutex::new(Instant::now()),
     });
-    core.insert_session(session);
+    core.insert_session(session.clone());
     core.end_prepare();
+
+    // Files the receiver already had are complete before any upload starts.
+    for file in &session.files {
+        if file.path.lock().map(|path| path.is_some()).unwrap_or(false) {
+            let size = file.size;
+            session.received_bytes.fetch_add(size, Ordering::SeqCst);
+            complete_file(&core, &session, file, size);
+        }
+    }
 
     json_response(
         StatusCode::OK,
@@ -450,6 +531,67 @@ async fn prepare_upload(
     )
 }
 
+/// Applies the sender's `modified`/`accessed` timestamps to the saved file,
+/// so a transfer keeps the original dates like other LocalSend clients do.
+fn apply_file_times(file: &ReceiveFile, path: Option<PathBuf>) {
+    let Some(metadata) = file.metadata.as_ref() else {
+        return;
+    };
+    let Some(path) = path else {
+        return;
+    };
+    let mut times = std::fs::FileTimes::new();
+    let mut any = false;
+    if let Some(modified) = metadata.modified.as_deref().and_then(parse_timestamp) {
+        times = times.set_modified(modified);
+        any = true;
+    }
+    if let Some(accessed) = metadata.accessed.as_deref().and_then(parse_timestamp) {
+        times = times.set_accessed(accessed);
+        any = true;
+    }
+    if !any {
+        return;
+    }
+    if let Ok(handle) = std::fs::OpenOptions::new().write(true).open(&path) {
+        let _ = handle.set_times(times);
+    }
+}
+
+fn parse_timestamp(value: &str) -> Option<std::time::SystemTime> {
+    let parsed = gtk::glib::DateTime::from_iso8601(value, None).ok()?;
+    let seconds = parsed.to_unix();
+    if seconds < 0 {
+        return None;
+    }
+    let nanos = u32::try_from(parsed.microsecond()).unwrap_or(0) * 1000;
+    Some(std::time::UNIX_EPOCH + Duration::new(seconds as u64, nanos))
+}
+
+/// Whether an existing file is byte-identical to what the sender announced.
+/// The size check avoids hashing files that obviously differ.
+fn existing_file_matches(path: &Path, size: u64, sha256: &str) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.len() != size {
+        return false;
+    }
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        match file.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => hasher.update(&buffer[..read]),
+            Err(_) => return false,
+        }
+    }
+    crate::util::to_hex(&hasher.finalize()).eq_ignore_ascii_case(sha256)
+}
+
 struct TargetFile {
     path: PathBuf,
     file: std::fs::File,
@@ -457,7 +599,7 @@ struct TargetFile {
 
 async fn upload(
     State(core): State<Arc<Core>>,
-    ConnectInfo(_peer): ConnectInfo<SocketAddr>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Query(query): Query<HashMap<String, String>>,
     body: Body,
 ) -> Response {
@@ -472,6 +614,11 @@ async fn upload(
     let Some((session, file)) = core.find_session_file(&session_id, &file_id, &token) else {
         return StatusCode::FORBIDDEN.into_response();
     };
+    // Protocol 2.2: a token is only valid for the peer that prepared the
+    // session, so an upload from another address is rejected.
+    if !session.peer_ip.is_empty() && session.peer_ip != peer.ip().to_string() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     if session.canceled.load(Ordering::SeqCst) {
         return StatusCode::CONFLICT.into_response();
     }
@@ -503,7 +650,6 @@ async fn upload(
     let mut hasher = Sha256::new();
     let mut received = 0u64;
     let mut last_emit = Instant::now() - Duration::from_secs(1);
-    let done_before = session.done_bytes.load(Ordering::SeqCst);
     let total = session.total_bytes.max(1);
 
     while let Some(chunk) = stream.next().await {
@@ -530,13 +676,18 @@ async fn upload(
         }
         hasher.update(&chunk);
         received += chunk.len() as u64;
+        let chunk_len = chunk.len() as u64;
+        let done = session
+            .received_bytes
+            .fetch_add(chunk_len, Ordering::SeqCst)
+            + chunk_len;
         session.touch();
         if last_emit.elapsed() >= Duration::from_millis(120) {
             last_emit = Instant::now();
             core.emit(Event::ReceiveProgress {
                 session_id: session.id.clone(),
                 file_name: file.name.clone(),
-                done: done_before + received,
+                done: done.min(total),
                 total,
                 files_done: session.files_done.load(Ordering::SeqCst),
                 files_total: session.files.len(),
@@ -573,6 +724,7 @@ async fn upload(
         }
     }
 
+    apply_file_times(&file, Some(target.path.clone()));
     complete_file(&core, &session, &file, received);
     StatusCode::OK.into_response()
 }
@@ -611,7 +763,7 @@ fn complete_file(
     } else {
         let path = file.path.lock().ok().and_then(|p| p.clone());
         if let Some(path) = path {
-            let cache = if core.config().history_cache {
+            let cache = if core.config().history_cache && !file.existing {
                 let cache_root = core.history_cache_root();
                 let index = session.files_done.load(Ordering::SeqCst) as usize;
                 history::cache_file_copy(&path, &session.id, index, &file.name, &cache_root)
@@ -638,11 +790,16 @@ fn complete_file(
     }
 
     let files_done = session.files_done.fetch_add(1, Ordering::SeqCst) + 1;
+    // Report the same monotonic counter the per-chunk updates use. Mixing in
+    // `done_bytes` (completed files only) made the bar jump backwards when a
+    // file finished while another was still uploading.
+    let total = session.total_bytes.max(1);
+    let done = session.received_bytes.load(Ordering::SeqCst).min(total);
     core.emit(Event::ReceiveProgress {
         session_id: session.id.clone(),
         file_name: file.name.clone(),
-        done: session.done_bytes.load(Ordering::SeqCst),
-        total: session.total_bytes.max(1),
+        done,
+        total,
         files_done,
         files_total: session.files.len(),
     });
@@ -695,7 +852,6 @@ async fn receive_text(
     let mut hasher = Sha256::new();
     let mut received = 0u64;
     let mut last_emit = Instant::now() - Duration::from_secs(1);
-    let done_before = session.done_bytes.load(Ordering::SeqCst);
     let total = session.total_bytes.max(1);
 
     while let Some(chunk) = stream.next().await {
@@ -716,13 +872,18 @@ async fn receive_text(
         data.extend_from_slice(&chunk);
         hasher.update(&chunk);
         received += chunk.len() as u64;
+        let chunk_len = chunk.len() as u64;
+        let done = session
+            .received_bytes
+            .fetch_add(chunk_len, Ordering::SeqCst)
+            + chunk_len;
         session.touch();
         if last_emit.elapsed() >= Duration::from_millis(120) {
             last_emit = Instant::now();
             core.emit(Event::ReceiveProgress {
                 session_id: session.id.clone(),
                 file_name: file.name.clone(),
-                done: done_before + received,
+                done: done.min(total),
                 total,
                 files_done: session.files_done.load(Ordering::SeqCst),
                 files_total: session.files.len(),
@@ -741,7 +902,6 @@ async fn receive_text(
             return StatusCode::UNPROCESSABLE_ENTITY.into_response();
         }
     }
-
     let text = String::from_utf8_lossy(&data).into_owned();
     let text = if text.is_empty() {
         file.name.clone()
@@ -860,6 +1020,100 @@ mod tests {
     use sha2::{Digest, Sha256};
     use std::sync::Arc;
     use tower::ServiceExt;
+
+    #[test]
+    fn matches_existing_files_by_size_and_checksum() {
+        let directory =
+            std::env::temp_dir().join(format!("localsend-skip-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("song.m4a");
+        std::fs::write(&path, b"hello").unwrap();
+        let digest = crate::util::to_hex(&Sha256::digest(b"hello"));
+
+        assert!(existing_file_matches(&path, 5, &digest));
+        assert!(existing_file_matches(&path, 5, &digest.to_uppercase()));
+        assert!(!existing_file_matches(&path, 4, &digest));
+        assert!(!existing_file_matches(&path, 5, &"0".repeat(64)));
+        assert!(!existing_file_matches(&directory, 5, &digest));
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[tokio::test]
+    async fn accepts_but_does_not_request_files_it_already_has() {
+        let directory =
+            std::env::temp_dir().join(format!("localsend-skip-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let existing = b"already here".to_vec();
+        std::fs::write(directory.join("song.m4a"), &existing).unwrap();
+
+        let mut config = Config::default();
+        config.alias = "Test Receiver".to_string();
+        config.fingerprint = "self-test-fingerprint".to_string();
+        config.encryption = false;
+        config.pin.clear();
+        config.quick_save = true;
+        config.download_dir = directory.clone();
+        let core = Arc::new(Core::for_test(config));
+        core.set_server(53317, "http");
+
+        let app = router(core.clone());
+        let body = json!({
+            "info": {
+                "alias": "Mock Sender",
+                "version": "2.2",
+                "deviceType": "desktop",
+                "fingerprint": "peer-test-fingerprint",
+                "port": 4444,
+                "protocol": "http",
+                "download": false
+            },
+            "files": {
+                "f1": {
+                    "id": "f1",
+                    "fileName": "song.m4a",
+                    "size": existing.len(),
+                    "fileType": "audio/mp4",
+                    "sha256": crate::util::to_hex(&Sha256::digest(&existing))
+                },
+                "f2": {
+                    "id": "f2",
+                    "fileName": "other.bin",
+                    "size": 3,
+                    "fileType": "application/octet-stream",
+                    "sha256": crate::util::to_hex(&Sha256::digest(b"new"))
+                }
+            }
+        })
+        .to_string();
+
+        let prepare = Request::builder()
+            .method("POST")
+            .uri("/api/localsend/v2/prepare-upload")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo::<SocketAddr>(SocketAddr::from((
+                [127, 0, 0, 1],
+                4444,
+            ))))
+            .body(Body::from(body))
+            .unwrap();
+        let response = app.oneshot(prepare).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let prepared: PrepareUploadResponse = serde_json::from_slice(&bytes).unwrap();
+
+        assert!(
+            !prepared.files.contains_key("f1"),
+            "the file already on disk must not be requested again"
+        );
+        assert!(
+            prepared.files.contains_key("f2"),
+            "new files still need an upload token"
+        );
+
+        let _ = std::fs::remove_dir_all(&directory);
+    }
 
     #[tokio::test]
     async fn receives_an_uploaded_file() {

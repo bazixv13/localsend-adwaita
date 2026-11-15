@@ -112,16 +112,30 @@ pub fn message_body(file: &FileMetadata) -> Option<String> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct FileMetadata {
     pub id: String,
     pub file_name: String,
     pub size: u64,
     pub file_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub preview: Option<String>,
-    pub metadata: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<FileMetadataExt>,
+}
+
+/// Optional timestamps from protocol v2.1. Peers may send either, both or
+/// neither; the receiver applies the ones it understands to the saved file.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FileMetadataExt {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accessed: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

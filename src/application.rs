@@ -48,7 +48,22 @@ pub fn run() -> glib::ExitCode {
             }
         });
 
-        window.present();
+        // With "Start in Background" the window only opens once the tray is
+        // confirmed, so the app never hides itself with no way back.
+        if core.config().start_in_background {
+            let check_core = core.clone();
+            let check_window = window.clone();
+            glib::timeout_add_seconds_local_once(2, move || {
+                if check_core.tray_active() {
+                    check_window.set_visible(false);
+                    crate::tray::set_window_visible(false);
+                } else {
+                    check_window.present();
+                }
+            });
+        } else {
+            window.present();
+        }
     });
 
     let quit = gio::SimpleAction::new("quit", None);

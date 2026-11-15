@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 
 pub const HISTORY_BUDGET: u64 = 128 * 1024 * 1024;
 pub const FILE_CACHE_CAP: u64 = 32 * 1024 * 1024;
+/// Maximum number of transfers kept in history (each transfer may contain
+/// many files). Oldest transfers are dropped first.
+pub const MAX_HISTORY_ENTRIES: usize = 100;
 
 fn default_version() -> u32 {
     1
@@ -150,6 +153,11 @@ impl HistoryStore {
         store.path = path;
         store.cache_root = cache_root;
         store.reconcile();
+        let trimmed = store.entries.len() > MAX_HISTORY_ENTRIES;
+        store.evict();
+        if trimmed {
+            let _ = store.save();
+        }
         store
     }
 
@@ -217,6 +225,9 @@ impl HistoryStore {
     }
 
     pub fn evict(&mut self) {
+        // Drop whole transfers beyond the count limit first so the UI never has
+        // to render or keep more than the user expects.
+        self.evict_excess_entries();
         loop {
             if self.usage_bytes() <= HISTORY_BUDGET {
                 break;
@@ -228,6 +239,16 @@ impl HistoryStore {
                 continue;
             }
             break;
+        }
+    }
+
+    fn evict_excess_entries(&mut self) {
+        while self.entries.len() > MAX_HISTORY_ENTRIES {
+            if let Some(entry) = self.entries.pop() {
+                for item in &entry.items {
+                    remove_item_cache(item);
+                }
+            }
         }
     }
 

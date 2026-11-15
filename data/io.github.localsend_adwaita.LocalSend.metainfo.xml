@@ -46,6 +46,81 @@
   </keywords>
 
   <releases>
+    <release version="0.3.28" date="2026-11-15">
+      <description>
+        <p>Open history faster by loading file rows on demand and cap it at 100 transfers.</p>
+      </description>
+    </release>
+    <release version="0.3.27" date="2026-11-14">
+      <description>
+        <p>Keep receive progress monotonic when one file completes while others are still uploading.</p>
+      </description>
+    </release>
+    <release version="0.3.26" date="2026-11-14">
+      <description>
+        <p>Skip files the receiver already has, enforce the upload source address, and preserve file timestamps.</p>
+      </description>
+    </release>
+    <release version="0.3.25" date="2026-11-14">
+      <description>
+        <p>Leave the page of a device that disappears during a transfer and restore the transfer view instead.</p>
+      </description>
+    </release>
+    <release version="0.3.24" date="2026-11-14">
+      <description>
+        <p>Send SHA-256 checksums with outgoing files and messages so peers can verify what they receive.</p>
+      </description>
+    </release>
+    <release version="0.3.23" date="2026-11-14">
+      <description>
+        <p>Allow switching devices during a transfer and mark each file as received or waiting in the transfer file list.</p>
+      </description>
+    </release>
+    <release version="0.3.22" date="2026-11-14">
+      <description>
+        <p>Match the transfer progress ring to the header menu icon size and shrink the file list dialog slightly.</p>
+      </description>
+    </release>
+    <release version="0.3.21" date="2026-11-14">
+      <description>
+        <p>Make multi-file receive progress monotonic when peers upload several files at once.</p>
+      </description>
+    </release>
+    <release version="0.3.20" date="2026-11-14">
+      <description>
+        <p>Fix multi-file progress accounting and the header ring, style the file list as a single rounded card, narrow the dialog, and add a Start in Background setting.</p>
+      </description>
+    </release>
+    <release version="0.3.19" date="2026-11-14">
+      <description>
+        <p>Add a header transfer-progress indicator, keep progress visible when switching devices, rebuild the file list dialog with native styling and middle-ellipsized names, and detect sender cancellation on the decision screen.</p>
+      </description>
+    </release>
+    <release version="0.3.18" date="2026-11-14">
+      <description>
+        <p>Fix the colors and corners of the receive file list dialog.</p>
+      </description>
+    </release>
+    <release version="0.3.17" date="2026-11-14">
+      <description>
+        <p>Show the file-count as a pill, widen the receive file list dialog, and notify the sender when a transfer is canceled.</p>
+      </description>
+    </release>
+    <release version="0.3.16" date="2026-11-14">
+      <description>
+        <p>Show the list of filenames for multi-file transfers when tapping the file count during receive.</p>
+      </description>
+    </release>
+    <release version="0.3.15" date="2026-11-14">
+      <description>
+        <p>Show the received-message dialog when the window is visible, including with Quick Save enabled.</p>
+      </description>
+    </release>
+    <release version="0.3.14" date="2026-11-14">
+      <description>
+        <p>Fix the empty History page losing its status icon and message.</p>
+      </description>
+    </release>
     <release version="0.3.13" date="2026-11-14">
       <description>
         <p>Use native GTK and GLib APIs for clipboard, URL escaping, timestamps and hex output, and clean up the codebase.</p>

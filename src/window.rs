@@ -51,10 +51,19 @@ struct Ui {
     drop_zone: gtk::Box,
 
     transfer_title: gtk::Label,
-    transfer_file: gtk::Label,
+    transfer_file: gtk::Button,
     transfer_progress: gtk::ProgressBar,
     transfer_detail: gtk::Label,
     transfer_cancel: gtk::Button,
+
+    transfer_indicator: gtk::MenuButton,
+    indicator_ring: gtk::DrawingArea,
+    indicator_fraction: Rc<Cell<f64>>,
+    indicator_title: gtk::Label,
+    indicator_detail: gtk::Label,
+    indicator_bar: gtk::ProgressBar,
+    indicator_show: gtk::Button,
+    indicator_cancel: gtk::Button,
 
     result_page: adw::StatusPage,
     result_primary: gtk::Button,
@@ -474,11 +483,11 @@ impl Ui {
         transfer_title.add_css_class("title-2");
         transfer_title.set_wrap(true);
         transfer_title.set_justify(gtk::Justification::Center);
-        let transfer_file = gtk::Label::new(None);
-        transfer_file.add_css_class("dim-label");
-        transfer_file.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
-        transfer_file.set_max_width_chars(42);
+        let transfer_file = gtk::Button::with_label("");
+        transfer_file.add_css_class("pill");
+        transfer_file.add_css_class("flat");
         transfer_file.set_halign(gtk::Align::Center);
+        transfer_file.set_tooltip_text(Some("Show file names"));
         let transfer_progress = gtk::ProgressBar::new();
         transfer_progress.add_css_class("transfer-progress");
         transfer_progress.set_show_text(false);
@@ -603,11 +612,95 @@ impl Ui {
             .build();
         sidebar_toggle.add_css_class("flat");
 
+        // Header transfer indicator: a small ring showing the current
+        // transfer's progress; clicking it opens a popover with details.
+        let indicator_fraction = Rc::new(Cell::new(0.0f64));
+        let indicator_ring = gtk::DrawingArea::new();
+        indicator_ring.set_content_width(16);
+        indicator_ring.set_content_height(16);
+        indicator_ring.set_valign(gtk::Align::Center);
+        {
+            let fraction = indicator_fraction.clone();
+            indicator_ring.set_draw_func(move |area, cr, width, height| {
+                let size = f64::from(width.min(height));
+                let line = (size / 7.0).max(2.0);
+                let radius = (size - line) / 2.0;
+                let center_x = f64::from(width) / 2.0;
+                let center_y = f64::from(height) / 2.0;
+                let color = area.color();
+                cr.set_line_width(line);
+                cr.set_source_rgba(
+                    f64::from(color.red()),
+                    f64::from(color.green()),
+                    f64::from(color.blue()),
+                    0.25,
+                );
+                cr.arc(center_x, center_y, radius, 0.0, std::f64::consts::TAU);
+                let _ = cr.stroke();
+                let fraction = fraction.get().clamp(0.0, 1.0);
+                if fraction > 0.0 {
+                    cr.set_source_rgba(
+                        f64::from(color.red()),
+                        f64::from(color.green()),
+                        f64::from(color.blue()),
+                        f64::from(color.alpha()),
+                    );
+                    cr.arc(
+                        center_x,
+                        center_y,
+                        radius,
+                        -std::f64::consts::FRAC_PI_2,
+                        -std::f64::consts::FRAC_PI_2 + std::f64::consts::TAU * fraction,
+                    );
+                    let _ = cr.stroke();
+                }
+            });
+        }
+
+        let indicator_title = gtk::Label::new(None);
+        indicator_title.add_css_class("title-5");
+        indicator_title.set_xalign(0.0);
+        let indicator_detail = gtk::Label::new(None);
+        indicator_detail.add_css_class("caption");
+        indicator_detail.add_css_class("dim-label");
+        indicator_detail.set_xalign(0.0);
+        indicator_detail.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        let indicator_bar = gtk::ProgressBar::new();
+        indicator_bar.set_show_text(false);
+        let indicator_show = gtk::Button::with_label("Show Transfer");
+        indicator_show.add_css_class("flat");
+        let indicator_cancel = gtk::Button::with_label("Cancel");
+        indicator_cancel.add_css_class("pill");
+        indicator_cancel.add_css_class("destructive-action");
+        let indicator_buttons = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        indicator_buttons.set_halign(gtk::Align::End);
+        indicator_buttons.append(&indicator_show);
+        indicator_buttons.append(&indicator_cancel);
+        let indicator_box = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        indicator_box.set_margin_top(12);
+        indicator_box.set_margin_bottom(12);
+        indicator_box.set_margin_start(12);
+        indicator_box.set_margin_end(12);
+        indicator_box.set_width_request(300);
+        indicator_box.append(&indicator_title);
+        indicator_box.append(&indicator_detail);
+        indicator_box.append(&indicator_bar);
+        indicator_box.append(&indicator_buttons);
+        let indicator_popover = gtk::Popover::new();
+        indicator_popover.set_child(Some(&indicator_box));
+        let transfer_indicator = gtk::MenuButton::new();
+        transfer_indicator.set_child(Some(&indicator_ring));
+        transfer_indicator.set_popover(Some(&indicator_popover));
+        transfer_indicator.add_css_class("flat");
+        transfer_indicator.set_tooltip_text(Some("Transfer progress"));
+        transfer_indicator.set_visible(false);
+
         let window_title = adw::WindowTitle::new("LocalSend", "Nearby Devices");
         let header = adw::HeaderBar::new();
         header.pack_start(&sidebar_toggle);
         header.set_title_widget(Some(&window_title));
         header.pack_end(&menu_button);
+        header.pack_end(&transfer_indicator);
 
         let banner = adw::Banner::new("");
         banner.set_revealed(false);
@@ -656,6 +749,14 @@ impl Ui {
             transfer_progress,
             transfer_detail,
             transfer_cancel,
+            transfer_indicator,
+            indicator_ring,
+            indicator_fraction,
+            indicator_title,
+            indicator_detail,
+            indicator_bar,
+            indicator_show,
+            indicator_cancel,
             result_page,
             result_primary,
             result_secondary,
@@ -713,6 +814,26 @@ impl Ui {
         self.transfer_cancel.connect_clicked({
             let ui = self.clone();
             move |_| ui.cancel_transfer()
+        });
+
+        self.indicator_cancel.connect_clicked({
+            let ui = self.clone();
+            move |_| {
+                ui.transfer_indicator.popdown();
+                ui.cancel_transfer();
+            }
+        });
+        self.indicator_show.connect_clicked({
+            let ui = self.clone();
+            move |_| {
+                ui.transfer_indicator.popdown();
+                ui.sync_transfer_view();
+            }
+        });
+
+        self.transfer_file.connect_clicked({
+            let ui = self.clone();
+            move |_| ui.show_receive_files_dialog()
         });
         self.result_primary.connect_clicked({
             let ui = self.clone();
@@ -802,6 +923,7 @@ impl Ui {
                 ui.refresh_devices();
             }
             ui.sync_search_status();
+            ui.refresh_transfer_indicator();
             glib::ControlFlow::Continue
         });
     }
@@ -848,11 +970,65 @@ impl Ui {
     /// transfer that started in the background is visible as soon as the
     /// window is opened.
     fn sync_transfer_view(&self) {
-        if self.transfer.borrow().is_some()
-            && self.content_stack.visible_child_name().as_deref() != Some("transfer")
-        {
-            self.content_stack.set_visible_child_name("transfer");
+        self.refresh_transfer_indicator();
+        let subtitle = self
+            .transfer
+            .borrow()
+            .as_ref()
+            .map(|state| match state.kind {
+                TransferKind::Receiving => "Receiving Files",
+                TransferKind::Sending => "Sending Files",
+            });
+        if let Some(subtitle) = subtitle {
+            if self.content_stack.visible_child_name().as_deref() != Some("transfer") {
+                self.window_title.set_subtitle(subtitle);
+                self.content_stack.set_visible_child_name("transfer");
+            }
         }
+    }
+
+    /// Mirrors the current transfer into the header ring and its popover, so
+    /// progress stays reachable after switching away from the transfer page.
+    fn refresh_transfer_indicator(&self) {
+        let state = self.transfer.borrow();
+        let Some(state) = state.as_ref() else {
+            self.transfer_indicator.set_visible(false);
+            if self.indicator_fraction.get() != 0.0 {
+                self.indicator_fraction.set(0.0);
+                self.indicator_ring.queue_draw();
+            }
+            return;
+        };
+        let fraction = if state.total == 0 {
+            0.0
+        } else {
+            (state.done as f64 / state.total as f64).clamp(0.0, 1.0)
+        };
+        if (self.indicator_fraction.get() - fraction).abs() > f64::EPSILON {
+            self.indicator_fraction.set(fraction);
+            self.indicator_ring.queue_draw();
+        }
+        self.indicator_bar.set_fraction(fraction);
+        let (title, detail) = match state.kind {
+            TransferKind::Receiving => (
+                "Receiving files".to_string(),
+                state
+                    .receive_label
+                    .clone()
+                    .unwrap_or_else(|| format!("{} received", util::human_bytes(state.done))),
+            ),
+            TransferKind::Sending => (
+                "Sending files".to_string(),
+                format!(
+                    "{} of {}",
+                    util::human_bytes(state.done),
+                    util::human_bytes(state.total)
+                ),
+            ),
+        };
+        self.indicator_title.set_label(&title);
+        self.indicator_detail.set_label(&detail);
+        self.transfer_indicator.set_visible(true);
     }
 
     fn sync_search_status(&self) {
@@ -1050,6 +1226,10 @@ impl Ui {
                 if !self.is_receiving(&session_id) {
                     return;
                 }
+                if let Some(state) = self.transfer.borrow_mut().as_mut() {
+                    state.done = done;
+                    state.total = total;
+                }
                 self.update_progress(done, total, &file_name, files_done, files_total);
                 let percent = progress_percent(done, total);
                 let progress_name = if files_total > 1 {
@@ -1123,12 +1303,10 @@ impl Ui {
                 }
                 self.notification_percent.set(u64::MAX);
                 let body = messages.join("\n\n");
-                // A message never takes over the window: the text goes to the
-                // clipboard, and the notification opens it on demand.
                 self.copy_text(&body);
                 self.pending_text.borrow_mut().replace(PendingText {
                     alias: alias.clone(),
-                    messages,
+                    messages: messages.clone(),
                     received: Instant::now(),
                 });
                 if self.window.is_visible() {
@@ -1136,8 +1314,9 @@ impl Ui {
                         self.back_to_device();
                     }
                     self.toast(&format!("Message from {alias} copied to the clipboard"));
-                }
-                if self.foreground() {
+                    // Show the message in the window when it is visible, instead of
+                    // leaving it only in the clipboard/notification.
+                    self.show_text_messages(&alias, messages, false);
                     return;
                 }
                 if let Some(app) = self.window.application() {
@@ -1406,14 +1585,19 @@ impl Ui {
                     }
                 }
                 None => {
-                    // The selected device went away: forget it and go home.
+                    // The selected device went away: forget it and leave its
+                    // now-dead page, showing a running transfer or the home
+                    // page instead.
                     self.selected.borrow_mut().take();
-                    if self.transfer.borrow().is_none()
-                        && matches!(
-                            self.content_stack.visible_child_name().as_deref(),
-                            Some("device") | Some("result")
-                        )
-                    {
+                    let on_device_page = matches!(
+                        self.content_stack.visible_child_name().as_deref(),
+                        Some("device") | Some("result")
+                    );
+                    if self.transfer.borrow().is_some() {
+                        if on_device_page {
+                            self.sync_transfer_view();
+                        }
+                    } else if on_device_page {
                         if !self.queue.borrow().is_empty() {
                             self.toast("The device is gone. Your queue was kept.");
                         }
@@ -1435,6 +1619,8 @@ impl Ui {
     /// Selecting a device with a non-empty queue asks where the queue should
     /// go before anything is sent.
     fn select_device(self: &Rc<Self>, key: &str) {
+        // Switching devices never interrupts a transfer: its progress stays
+        // available in the header indicator and its popover.
         self.show_device(key);
         if self.queue.borrow().is_empty() || self.transfer.borrow().is_some() {
             return;
@@ -1748,6 +1934,124 @@ impl Ui {
         }
         self.show_empty();
     }
+    fn show_receive_files_dialog(self: &Rc<Self>) {
+        let session_id = self.transfer.borrow().as_ref().and_then(|state| {
+            if matches!(state.kind, TransferKind::Receiving) {
+                state.session_id.clone()
+            } else {
+                None
+            }
+        });
+        let Some(session_id) = session_id else {
+            return;
+        };
+        let Some(names) = self.core.receive_file_names(&session_id) else {
+            return;
+        };
+        if names.len() <= 1 {
+            return;
+        }
+
+        let list = gtk::ListBox::new();
+        list.set_selection_mode(gtk::SelectionMode::None);
+        list.set_valign(gtk::Align::Start);
+        let rows: Rc<RefCell<Vec<(String, gtk::Label)>>> = Rc::new(RefCell::new(Vec::new()));
+        for name in &names {
+            let label = gtk::Label::builder()
+                .label(name)
+                .xalign(0.0)
+                .hexpand(true)
+                .ellipsize(gtk::pango::EllipsizeMode::Middle)
+                .selectable(true)
+                .build();
+            let status = gtk::Label::new(Some("Waiting"));
+            status.add_css_class("caption");
+            status.add_css_class("dim-label");
+            status.set_valign(gtk::Align::Center);
+            let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+            row_box.set_margin_top(10);
+            row_box.set_margin_bottom(10);
+            row_box.set_margin_start(12);
+            row_box.set_margin_end(12);
+            row_box.append(&label);
+            row_box.append(&status);
+            let row = gtk::ListBoxRow::new();
+            row.set_activatable(false);
+            row.set_child(Some(&row_box));
+            list.append(&row);
+            rows.borrow_mut().push((name.clone(), status));
+        }
+
+        let apply_states = |rows: &RefCell<Vec<(String, gtk::Label)>>,
+                            states: &[(String, bool)]| {
+            for (name, status) in rows.borrow().iter() {
+                if let Some((_, done)) = states.iter().find(|(known, _)| known == name) {
+                    status.set_label(if *done { "Received" } else { "Waiting" });
+                }
+            }
+        };
+        if let Some(states) = self.core.receive_file_done(&session_id) {
+            apply_states(&rows, &states);
+        }
+
+        let scroller = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::Automatic)
+            .vexpand(true)
+            .child(&list)
+            .build();
+        scroller.add_css_class("file-list-scroller");
+        scroller.set_overflow(gtk::Overflow::Hidden);
+
+        let clamp = adw::Clamp::new();
+        clamp.set_maximum_size(540);
+        clamp.set_tightening_threshold(420);
+        clamp.set_margin_top(18);
+        clamp.set_margin_bottom(18);
+        clamp.set_margin_start(18);
+        clamp.set_margin_end(18);
+        clamp.set_child(Some(&scroller));
+
+        let header = adw::HeaderBar::new();
+        header.set_title_widget(Some(&adw::WindowTitle::new(
+            &format!("{} files", names.len()),
+            "In this transfer",
+        )));
+
+        let toolbar = adw::ToolbarView::new();
+        toolbar.add_top_bar(&header);
+        toolbar.set_content(Some(&clamp));
+
+        let dialog = adw::Dialog::new();
+        dialog.set_content_width(600);
+        dialog.set_content_height(520);
+        dialog.set_child(Some(&toolbar));
+
+        // Keep the per-file state live while the dialog stays open.
+        let closed = Rc::new(Cell::new(false));
+        dialog.connect_closed({
+            let closed = closed.clone();
+            move |_| closed.set(true)
+        });
+        let core = self.core.clone();
+        let timer_session = session_id.clone();
+        let timer_rows = rows.clone();
+        glib::timeout_add_seconds_local(1, move || {
+            if closed.get() {
+                return glib::ControlFlow::Break;
+            }
+            if let Some(states) = core.receive_file_done(&timer_session) {
+                for (name, status) in timer_rows.borrow().iter() {
+                    if let Some((_, done)) = states.iter().find(|(known, _)| known == name) {
+                        status.set_label(if *done { "Received" } else { "Waiting" });
+                    }
+                }
+            }
+            glib::ControlFlow::Continue
+        });
+
+        dialog.present(Some(&self.window));
+    }
 
     fn update_progress(
         &self,
@@ -1790,6 +2094,7 @@ impl Ui {
             files_done,
             files_total
         ));
+        self.refresh_transfer_indicator();
     }
 
     fn show_result(
@@ -2117,6 +2422,7 @@ impl Ui {
         self.transfer_cancel.set_label("Cancel");
         self.content_stack.set_visible_child_name("transfer");
         self.window_title.set_subtitle("Sending Message");
+        self.refresh_transfer_indicator();
         sender::spawn_text(self.core.clone(), device_key, text, pin, cancel);
     }
 
@@ -2153,6 +2459,7 @@ impl Ui {
         self.transfer_cancel.set_label("Cancel");
         self.content_stack.set_visible_child_name("transfer");
         self.window_title.set_subtitle("Sending Files");
+        self.refresh_transfer_indicator();
 
         sender::spawn(self.core.clone(), device_key, paths, pin, cancel);
     }
@@ -2168,10 +2475,39 @@ impl Ui {
         if let Some(session_id) = &state.session_id {
             if let Some(session) = self.core.take_session(session_id) {
                 session.canceled.store(true, Ordering::SeqCst);
+                let core = self.core.clone();
+                let session = session.clone();
+                let _ = std::thread::Builder::new()
+                    .name("localsend-recv-cancel".to_string())
+                    .spawn(move || {
+                        let Ok(agent) = crate::net::client(
+                            &session.peer_protocol,
+                            &session.peer_fingerprint,
+                            core.identity().as_deref(),
+                            None,
+                        ) else {
+                            return;
+                        };
+                        let url = format!(
+                            "{}?sessionId={}",
+                            crate::protocol::api_url(
+                                &session.peer_ip,
+                                session.peer_port,
+                                &session.peer_protocol,
+                                "/cancel",
+                            ),
+                            crate::protocol::percent_encode(&session.id),
+                        );
+                        let _ = agent
+                            .post(&url)
+                            .timeout(std::time::Duration::from_secs(3))
+                            .call();
+                    });
             }
         }
         self.queued_texts.borrow_mut().clear();
         self.queue_device.borrow_mut().take();
+        self.refresh_transfer_indicator();
         self.toast("Transfer canceled");
         self.back_to_device();
     }
@@ -2411,6 +2747,7 @@ impl Ui {
         self.transfer_cancel.set_label("Cancel");
         self.content_stack.set_visible_child_name("transfer");
         self.window_title.set_subtitle("Receiving Files");
+        self.refresh_transfer_indicator();
     }
 
     fn show_pin_dialog(self: &Rc<Self>, device: String, paths: Vec<PathBuf>, text: Option<String>) {
@@ -2492,8 +2829,15 @@ impl Ui {
         page: &adw::PreferencesPage,
         dialog: &adw::PreferencesDialog,
     ) {
-        while let Some(child) = page.first_child() {
-            child.unparent();
+        // Only groups added by this method may be removed; the page's first
+        // child is its internal container, which must stay attached.
+        let mut child = page.first_child();
+        while let Some(widget) = child {
+            let next = widget.next_sibling();
+            if let Ok(group) = widget.downcast::<adw::PreferencesGroup>() {
+                page.remove(&group);
+            }
+            child = next;
         }
 
         dialog.set_title("History");
@@ -2545,10 +2889,23 @@ impl Ui {
             .title(&title)
             .subtitle(&subtitle)
             .build();
-        for item in &entry.items {
-            let child = self.build_history_item_row(&entry.alias, item, dialog);
-            row.add_row(&child);
-        }
+        // A transfer can contain hundreds of files. Building rows for every
+        // collapsed entry made opening/scrolling the history dialog laggy, so
+        // only populate the children when the user actually expands the row.
+        let items = entry.items.clone();
+        let alias = entry.alias.clone();
+        let dialog = dialog.clone();
+        let ui = self.clone();
+        let populated = std::rc::Rc::new(std::cell::Cell::new(false));
+        row.connect_notify_local(Some("expanded"), move |row, _| {
+            if !row.is_expanded() || populated.replace(true) {
+                return;
+            }
+            for item in &items {
+                let child = ui.build_history_item_row(&alias, item, &dialog);
+                row.add_row(&child);
+            }
+        });
         row
     }
 
@@ -3026,6 +3383,19 @@ impl Ui {
             }
         });
         background_group.add(&tray_row);
+
+        let start_row = adw::SwitchRow::builder()
+            .title("Start in Background")
+            .subtitle("Launch without showing the window when the tray icon is available.")
+            .build();
+        start_row.set_active(config.start_in_background);
+        start_row.connect_active_notify({
+            let core = self.core.clone();
+            move |row| {
+                core.update_config(|config| config.start_in_background = row.is_active());
+            }
+        });
+        background_group.add(&start_row);
 
         let quick_row = adw::SwitchRow::builder()
             .title("Quick Save")

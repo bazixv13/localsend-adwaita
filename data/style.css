@@ -31,6 +31,25 @@
   background-color: alpha(@accent_bg_color, 0.16);
 }
 
+.file-list-scroller {
+  background-color: alpha(@window_fg_color, 0.06);
+  border-radius: 14px;
+}
+
+.file-list-scroller list,
+.file-list-scroller row,
+.file-list-scroller label {
+  background-color: transparent;
+}
+
+.file-list-scroller list > row {
+  border-bottom: 1px solid alpha(@window_fg_color, 0.08);
+}
+
+.file-list-scroller list > row:last-child {
+  border-bottom: none;
+}
+
 progressbar.transfer-progress > trough {
   min-height: 8px;
   border-radius: 5px;
