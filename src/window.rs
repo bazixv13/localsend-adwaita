@@ -1413,10 +1413,18 @@ impl Ui {
                 }
                 self.update_progress(done, total, &file_name, files_done, files_total);
                 let percent = progress_percent(done, total);
+                // Several uploads run at once, so the file that reported last
+                // is not "the" current file. Name the batch instead of letting
+                // the label flicker between files.
+                let progress_name = if files_total > 1 {
+                    format!("{files_total} files")
+                } else {
+                    file_name.clone()
+                };
                 self.notify_progress(
                     "Sending",
                     percent,
-                    &format!("{percent}% · {file_name} ({files_done}/{files_total})"),
+                    &format!("{percent}% · {progress_name} ({files_done}/{files_total})"),
                 );
             }
             Event::SendFinished {
@@ -2099,6 +2107,8 @@ impl Ui {
                     } else {
                         file_name.to_string()
                     }
+                } else if files_total > 1 {
+                    format!("{files_total} files")
                 } else {
                     file_name.to_string()
                 }

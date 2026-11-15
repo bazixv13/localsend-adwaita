@@ -46,6 +46,11 @@
   </keywords>
 
   <releases>
+    <release version="0.3.39" date="2026-11-15">
+      <description>
+        <p>Send several files at once and serve uploads on a multi-threaded runtime, so transfers of many files finish much faster. Progress, the selected-file count and the completion summary stay accurate while uploads overlap.</p>
+      </description>
+    </release>
     <release version="0.3.38" date="2026-11-15">
       <description>
         <p>Stop the history view from interrupting transfers with a refresh notice, and build releases on Node 24.</p>

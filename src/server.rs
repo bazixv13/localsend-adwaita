@@ -69,7 +69,12 @@ pub fn start(core: Arc<Core>) -> Result<(), String> {
     std::thread::Builder::new()
         .name("localsend-http".to_string())
         .spawn(move || {
-            let runtime = match tokio::runtime::Builder::new_current_thread()
+            // Uploads arrive in parallel (the protocol allows it), and each
+            // one is mostly a blocking write to disk. A current-thread runtime
+            // serialises them onto one worker, so a single slow write stalls
+            // every other upload and the accept loop with it.
+            let runtime = match tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
                 .enable_all()
                 .build()
             {
@@ -581,7 +586,7 @@ fn existing_file_matches(path: &Path, size: u64, sha256: &str) -> bool {
         return false;
     };
     let mut hasher = Sha256::new();
-    let mut buffer = vec![0u8; 64 * 1024];
+    let mut buffer = vec![0u8; 1024 * 1024];
     loop {
         match file.read(&mut buffer) {
             Ok(0) => break,

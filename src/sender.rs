@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -383,108 +383,140 @@ fn send(
 
     let session_id = prepare.session_id.clone();
     let _outgoing = OutgoingGuard::new(core.clone(), &session_id, cancel.clone());
-    let mut done_before = 0u64;
-    for (index, file) in files.iter().enumerate() {
-        if cancel.load(Ordering::SeqCst) {
-            cancel_session(&agent, &ip, port, protocol, &session_id);
-            core.emit(Event::SendCanceled);
-            return;
-        }
-        let id = &id_for_file[index];
-        let Some(token) = prepare.files.get(id) else {
-            // A file without a token is one the receiver already has: the
-            // upload API allows partial acceptance, so skip it and keep
-            // going with the remaining files.
-            done_before += file.size;
-            core.emit(Event::SendProgress {
-                file_name: file.name.clone(),
-                done: done_before.min(total_bytes),
-                total: total_bytes,
-                files_done: index + 1,
-                files_total: file_count,
+    // The protocol allows the upload route to be called in parallel, and the
+    // receiver writes each file to its own handle. Uploading several files at
+    // once keeps the pipe full: a single stream stalls on round trips and on
+    // the receiver's disk writes, and many small files spend most of their
+    // time waiting rather than transferring.
+    let parallel = parallel_uploads(file_count);
+    let next_file = AtomicUsize::new(0);
+    let failed = Mutex::new(None::<(String, String)>);
+    let done_bytes = Arc::new(AtomicU64::new(0));
+    let files_done = Arc::new(AtomicUsize::new(0));
+
+    thread::scope(|scope| {
+        for _ in 0..parallel {
+            scope.spawn(|| {
+                loop {
+                    if cancel.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    if failed.lock().map(|slot| slot.is_some()).unwrap_or(true) {
+                        return;
+                    }
+                    let index = next_file.fetch_add(1, Ordering::SeqCst);
+                    if index >= file_count {
+                        return;
+                    }
+                    let file = &files[index];
+                    let id = &id_for_file[index];
+                    let Some(token) = prepare.files.get(id) else {
+                        // A file without a token is one the receiver already
+                        // has: the upload API allows partial acceptance, so
+                        // skip it and keep going with the remaining files.
+                        let done = done_bytes.fetch_add(file.size, Ordering::SeqCst) + file.size;
+                        let finished = files_done.fetch_add(1, Ordering::SeqCst) + 1;
+                        emit_progress(
+                            &core,
+                            file,
+                            done.min(total_bytes),
+                            total_bytes,
+                            finished,
+                            file_count,
+                        );
+                        continue;
+                    };
+                    let upload_url = format!(
+                        "{}?sessionId={}&fileId={}&token={}",
+                        api_url(&ip, port, protocol, "/upload"),
+                        percent_encode(&session_id),
+                        percent_encode(id),
+                        percent_encode(token),
+                    );
+                    let file_handle = match File::open(&file.path) {
+                        Ok(handle) => handle,
+                        Err(error) => {
+                            if let Ok(mut slot) = failed.lock() {
+                                slot.get_or_insert((
+                                    device_key.clone(),
+                                    format!("Could not open {}: {error}", file.name),
+                                ));
+                            }
+                            return;
+                        }
+                    };
+                    let reader = ProgressReader {
+                        inner: file_handle,
+                        core: core.clone(),
+                        file_name: file.name.clone(),
+                        file_bytes_read: 0,
+                        done_before: 0,
+                        total: total_bytes,
+                        files_done: index,
+                        files_total: file_count,
+                        cancel: cancel.clone(),
+                        last_emit: Instant::now() - Duration::from_secs(1),
+                        shared_done: Some(done_bytes.clone()),
+                        shared_total: total_bytes,
+                        shared_files_total: file_count,
+                        shared_files_done: Some(files_done.clone()),
+                    };
+                    let result = agent
+                        .post(&upload_url)
+                        .set("Content-Type", "application/octet-stream")
+                        .set("Content-Length", &file.size.to_string())
+                        .send(reader);
+                    if let Err(error) = result {
+                        if cancel.load(Ordering::SeqCst) {
+                            return;
+                        }
+                        let message = match error {
+                            ureq::Error::Status(403, _) => "The transfer was declined".to_string(),
+                            ureq::Error::Status(code, response) => {
+                                net::ApiError::Status(code, response.into_string().unwrap_or_default())
+                                    .to_string()
+                            }
+                            ureq::Error::Transport(error) => error.to_string(),
+                        };
+                        if let Ok(mut slot) = failed.lock() {
+                            slot.get_or_insert((device_key.clone(), message));
+                        }
+                        return;
+                    }
+                    let done = done_bytes.fetch_add(file.size, Ordering::SeqCst) + file.size;
+                    let finished = files_done.fetch_add(1, Ordering::SeqCst) + 1;
+                    emit_progress(
+                        &core,
+                        file,
+                        done.min(total_bytes),
+                        total_bytes,
+                        finished,
+                        file_count,
+                    );
+                }
             });
-            continue;
-        };
-        let upload_url = format!(
-            "{}?sessionId={}&fileId={}&token={}",
-            api_url(&ip, port, protocol, "/upload"),
-            percent_encode(&session_id),
-            percent_encode(id),
-            percent_encode(token),
-        );
-
-        let file_handle = match File::open(&file.path) {
-            Ok(file) => file,
-            Err(error) => {
-                core.emit(Event::SendFailed {
-                    device: device_key,
-                    message: format!("Could not open {}: {error}", file.name),
-                });
-                cancel_session(&agent, &ip, port, protocol, &session_id);
-                return;
-            }
-        };
-
-        let reader = ProgressReader {
-            inner: file_handle,
-            core: core.clone(),
-            file_name: file.name.clone(),
-            file_bytes_read: 0,
-            done_before,
-            total: total_bytes,
-            files_done: index,
-            files_total: file_count,
-            cancel: cancel.clone(),
-            last_emit: Instant::now() - Duration::from_secs(1),
-        };
-
-        let result = agent
-            .post(&upload_url)
-            .set("Content-Type", "application/octet-stream")
-            .set("Content-Length", &file.size.to_string())
-            .send(reader);
-
-        match result {
-            Ok(_) => {
-                done_before += file.size;
-                core.emit(Event::SendProgress {
-                    file_name: file.name.clone(),
-                    done: done_before,
-                    total: total_bytes,
-                    files_done: index + 1,
-                    files_total: file_count,
-                });
-            }
-            Err(error) => {
-                if cancel.load(Ordering::SeqCst) {
-                    cancel_session(&agent, &ip, port, protocol, &session_id);
-                    core.emit(Event::SendCanceled);
-                    return;
-                }
-                match error {
-                    ureq::Error::Status(403, _) => {
-                        cancel_session(&agent, &ip, port, protocol, &session_id);
-                        core.emit(Event::SendDeclined { device: device_key });
-                    }
-                    ureq::Error::Status(code, response) => {
-                        cancel_session(&agent, &ip, port, protocol, &session_id);
-                        let message =
-                            net::ApiError::Status(code, response.into_string().unwrap_or_default())
-                                .to_string();
-                        core.emit(Event::SendFailed {
-                            device: device_key,
-                            message,
-                        });
-                    }
-                    ureq::Error::Transport(error) => {
-                        cancel_session(&agent, &ip, port, protocol, &session_id);
-                        emit_transport_failure(&core, device_key, error.to_string());
-                    }
-                }
-                return;
-            }
         }
+    });
+
+    if cancel.load(Ordering::SeqCst) {
+        cancel_session(&agent, &ip, port, protocol, &session_id);
+        core.emit(Event::SendCanceled);
+        return;
     }
+    let failure = failed.lock().ok().and_then(|mut slot| slot.take());
+    if let Some((device_key, message)) = failure {
+        cancel_session(&agent, &ip, port, protocol, &session_id);
+        if message.contains("declined") {
+            core.emit(Event::SendDeclined { device: device_key });
+        } else {
+            core.emit(Event::SendFailed {
+                device: device_key,
+                message,
+            });
+        }
+        return;
+    }
+
 
     core.emit(Event::SendFinished {
         device: device_key,
@@ -517,7 +549,7 @@ fn format_timestamp(time: std::time::SystemTime) -> Option<String> {
 fn file_sha256(path: &Path) -> Option<String> {
     let mut file = File::open(path).ok()?;
     let mut hasher = Sha256::new();
-    let mut buffer = vec![0u8; 64 * 1024];
+    let mut buffer = vec![0u8; 1024 * 1024];
     loop {
         let read = file.read(&mut buffer).ok()?;
         if read == 0 {
@@ -601,6 +633,13 @@ struct ProgressReader {
     files_total: usize,
     cancel: Arc<AtomicBool>,
     last_emit: Instant,
+    /// When several uploads run at once, progress is counted on one shared
+    /// counter so the bar reflects total bytes moved rather than the bytes of
+    /// whichever file happened to report last.
+    shared_done: Option<Arc<AtomicU64>>,
+    shared_total: u64,
+    shared_files_total: usize,
+    shared_files_done: Option<Arc<AtomicUsize>>,
 }
 
 impl Read for ProgressReader {
@@ -613,6 +652,25 @@ impl Read for ProgressReader {
         }
         let read = self.inner.read(buffer)?;
         self.file_bytes_read += read as u64;
+        if let Some(shared) = self.shared_done.as_ref() {
+            let done = shared.fetch_add(read as u64, Ordering::SeqCst) + read as u64;
+            if self.last_emit.elapsed() >= Duration::from_millis(120) {
+                self.last_emit = Instant::now();
+                let finished = self
+                    .shared_files_done
+                    .as_ref()
+                    .map(|counter| counter.load(Ordering::SeqCst))
+                    .unwrap_or(self.files_done);
+                self.core.emit(Event::SendProgress {
+                    file_name: self.file_name.clone(),
+                    done: done.min(self.shared_total),
+                    total: self.shared_total,
+                    files_done: finished,
+                    files_total: self.shared_files_total,
+                });
+            }
+            return Ok(read);
+        }
         if self.last_emit.elapsed() >= Duration::from_millis(120) {
             self.last_emit = Instant::now();
             self.core.emit(Event::SendProgress {
@@ -625,6 +683,32 @@ impl Read for ProgressReader {
         }
         Ok(read)
     }
+}
+
+/// How many files to upload at once. LocalSend's upload route is explicitly
+/// safe to call in parallel, but a receiver may be a phone on the same Wi-Fi,
+/// so the count stays modest: enough to hide round-trip and disk latency,
+/// not enough to thrash the peer.
+fn parallel_uploads(file_count: usize) -> usize {
+    const MAX_PARALLEL: usize = 4;
+    file_count.clamp(1, MAX_PARALLEL)
+}
+
+fn emit_progress(
+    core: &Core,
+    file: &OutgoingFile,
+    done: u64,
+    total: u64,
+    files_done: usize,
+    files_total: usize,
+) {
+    core.emit(Event::SendProgress {
+        file_name: file.name.clone(),
+        done,
+        total,
+        files_done,
+        files_total,
+    });
 }
 
 fn collect_files(paths: &[PathBuf]) -> Result<Vec<OutgoingFile>, String> {
@@ -1239,6 +1323,207 @@ mod tests {
                 finished = true;
             }
         }
+        assert!(finished, "the transfer did not report completion");
+
+        server.join().unwrap();
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    /// Proves uploads really overlap. The mock receiver holds every upload
+    /// open until it has seen `expected` connections at the same time, so a
+    /// sequential sender would deadlock and time out instead of passing.
+    #[test]
+    fn uploads_several_files_at_once() {
+        let expected = 4;
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (arrived_tx, arrived_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            // The first request is prepare-upload; answer it with a token per
+            // file so the sender can start the real uploads.
+            let (mut prepare_stream, _) = listener.accept().unwrap();
+            let mut sink = [0u8; 8192];
+            let _ = prepare_stream.read(&mut sink);
+            let mut tokens = String::new();
+            for index in 0..expected {
+                if index > 0 {
+                    tokens.push(',');
+                }
+                tokens.push_str(&format!("\"file-{index}\":\"token-{index}\""));
+            }
+            let body = format!("{{\"sessionId\":\"sess\",\"files\":{{{tokens}}}}}");
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = prepare_stream.write_all(response.as_bytes());
+            drop(prepare_stream);
+
+            // Now hold every upload open until all of them have arrived.
+            let mut held = Vec::new();
+            for _ in 0..expected {
+                let (stream, _) = listener.accept().unwrap();
+                arrived_tx.send(()).unwrap();
+                held.push(stream);
+            }
+            for mut stream in held {
+                let mut sink = [0u8; 4096];
+                let _ = stream.read(&mut sink);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                );
+            }
+        });
+
+        let mut config = Config::default();
+        config.alias = "Parallel Sender".to_string();
+        config.fingerprint = "parallel-self".to_string();
+        config.encryption = false;
+        let core = Arc::new(Core::for_test(config));
+
+        let mut info = DeviceInfo::default();
+        info.alias = "Parallel Receiver".to_string();
+        info.fingerprint = "parallel-peer".to_string();
+        info.port = Some(port);
+        info.protocol = Some("http".to_string());
+        info.download = Some(false);
+        core.upsert_device(info, "127.0.0.1".to_string());
+        let key = core.devices_sorted()[0].key.clone();
+
+        let directory =
+            std::env::temp_dir().join(format!("localsend-parallel-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut paths = Vec::new();
+        for index in 0..expected {
+            let path = directory.join(format!("file-{index}.bin"));
+            std::fs::write(&path, vec![b'x'; 8192]).unwrap();
+            paths.push(path);
+        }
+
+        let sender_core = core.clone();
+        let handle = thread::spawn(move || {
+            send(
+                sender_core,
+                key,
+                paths,
+                None,
+                Arc::new(AtomicBool::new(false)),
+            );
+        });
+
+        // All four connections must be open before any of them is answered.
+        for _ in 0..expected {
+            arrived_rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("uploads did not overlap: the sender opened them one at a time");
+        }
+
+        handle.join().unwrap();
+        server.join().unwrap();
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+
+    /// With uploads running at once, the progress events must still describe
+    /// the batch honestly: the byte counter never runs past the total, the
+    /// completed-file counter never runs past the file count, and both finish
+    /// exactly on their limits.
+    #[test]
+    fn parallel_progress_stays_within_bounds() {
+        let expected = 4;
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (mut prepare_stream, _) = listener.accept().unwrap();
+            let mut sink = [0u8; 8192];
+            let _ = prepare_stream.read(&mut sink);
+            let mut tokens = String::new();
+            for index in 0..expected {
+                if index > 0 {
+                    tokens.push(',');
+                }
+                tokens.push_str(&format!("\"file-{index}\":\"token-{index}\""));
+            }
+            let body = format!("{{\"sessionId\":\"sess\",\"files\":{{{tokens}}}}}");
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = prepare_stream.write_all(response.as_bytes());
+            drop(prepare_stream);
+            for _ in 0..expected {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut sink = [0u8; 4096];
+                let _ = stream.read(&mut sink);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                );
+            }
+        });
+
+        let mut config = Config::default();
+        config.alias = "Bounds Sender".to_string();
+        config.fingerprint = "bounds-self".to_string();
+        config.encryption = false;
+        let core = Arc::new(Core::for_test(config));
+
+        let mut info = DeviceInfo::default();
+        info.alias = "Bounds Receiver".to_string();
+        info.fingerprint = "bounds-peer".to_string();
+        info.port = Some(port);
+        info.protocol = Some("http".to_string());
+        info.download = Some(false);
+        core.upsert_device(info, "127.0.0.1".to_string());
+        let key = core.devices_sorted()[0].key.clone();
+
+        let directory =
+            std::env::temp_dir().join(format!("localsend-bounds-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut paths = Vec::new();
+        for index in 0..expected {
+            let path = directory.join(format!("file-{index}.bin"));
+            std::fs::write(&path, vec![b'y'; 4096]).unwrap();
+            paths.push(path);
+        }
+
+        let events = core.subscribe();
+        send(
+            core.clone(),
+            key,
+            paths,
+            None,
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        let mut saw_progress = false;
+        let mut finished = false;
+        while let Ok(event) = events.try_recv() {
+            match event {
+                Event::SendProgress {
+                    done,
+                    total,
+                    files_done,
+                    files_total,
+                    ..
+                } => {
+                    saw_progress = true;
+                    assert!(done <= total, "byte progress {done} exceeded total {total}");
+                    assert!(
+                        files_done <= files_total,
+                        "file progress {files_done} exceeded total {files_total}"
+                    );
+                    assert_eq!(files_total, expected);
+                }
+                Event::SendFinished { files, .. } => {
+                    assert_eq!(files, expected);
+                    finished = true;
+                }
+                _ => {}
+            }
+        }
+        assert!(saw_progress, "no progress was reported");
         assert!(finished, "the transfer did not report completion");
 
         server.join().unwrap();
