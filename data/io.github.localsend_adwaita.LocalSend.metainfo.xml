@@ -46,6 +46,11 @@
   </keywords>
 
   <releases>
+    <release version="0.3.30" date="2026-11-15">
+      <description>
+        <p>Always refresh the history view after removing or deleting an item.</p>
+      </description>
+    </release>
     <release version="0.3.29" date="2026-11-15">
       <description>
         <p>Fix removing history items from multi-file transfers and refresh the history view after deletion.</p>

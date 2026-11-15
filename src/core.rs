@@ -600,17 +600,15 @@ impl Core {
 
     pub fn history_remove_item(&self, item_id: &str) -> RemoveOutcome {
         let outcome = self.history.lock().unwrap().remove_item(item_id);
-        if matches!(outcome, RemoveOutcome::Removed) {
-            self.emit(Event::HistoryChanged);
-        }
+        // Always notify so an open history view can reflect the current state,
+        // even if the requested item was already gone.
+        self.emit(Event::HistoryChanged);
         outcome
     }
 
     pub fn history_delete_file(&self, item_id: &str) -> Result<(), String> {
         let result = self.history.lock().unwrap().delete_item_file(item_id);
-        if result.is_ok() {
-            self.emit(Event::HistoryChanged);
-        }
+        self.emit(Event::HistoryChanged);
         result
     }
 
