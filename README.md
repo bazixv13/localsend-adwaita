@@ -11,10 +11,45 @@ Rust · GTK 4 · libadwaita · protocol 2.2
 
 ## Install
 
-### From a release (no compiling)
+Every stable release ships a `.flatpak` bundle compiled by CI, so you never have to build
+anything yourself.
 
-Downloads are built automatically for every release. This one paste installs the latest
-binary plus its icon, desktop entry and AppStream metadata into `~/.local`:
+### Flatpak bundle (recommended)
+
+```sh
+flatpak install --user --from \
+  https://github.com/bazixv13/localsend-adwaita/releases/latest/download/localsend-adw.flatpak
+flatpak run io.github.localsend_adwaita.LocalSend
+```
+
+`--from` accepts a URL directly in current Flatpak versions. If yours is older, download
+the bundle first:
+
+```sh
+curl -L -o localsend.flatpak \
+  https://github.com/bazixv13/localsend-adwaita/releases/latest/download/localsend-adw.flatpak
+flatpak install --user ./localsend.flatpak
+```
+
+The bundle needs the GNOME 50 runtime; Flatpak offers to install it from Flathub if it is
+missing.
+
+### With automatic updates (Flatpak remote)
+
+Install from the bazixv13 Flatpak remote instead and the app updates like any other
+Flatpak app:
+
+```sh
+flatpak remote-add --if-not-exists --from bazixv13-apps \
+  https://bazixv13.github.io/flatpak-repo/flatpakrepo
+flatpak install bazixv13-apps io.github.localsend_adwaita.LocalSend
+```
+
+Afterwards `flatpak update` (or GNOME Software) picks up new versions automatically.
+
+### Without Flatpak (release binary)
+
+The same release also carries a plain tarball. This one paste installs it into `~/.local`:
 
 ```sh
 mkdir -p /tmp/ls ~/.local/bin ~/.local/share/applications ~/.local/share/metainfo ~/.local/share/icons/hicolor/scalable/apps \
@@ -42,34 +77,24 @@ sudo dnf install gtk4-devel libadwaita-devel glib2-devel gcc gcc-c++ pkgconf-pkg
 sudo apt install libgtk-4-dev libadwaita-1-dev libglib2.0-dev-bin build-essential pkg-config cargo
 ```
 
-Then build and run your own copy:
+Then clone, build and install your own copy:
 
 ```sh
 git clone https://github.com/bazixv13/localsend-adwaita && cd localsend-adwaita \
-  && cargo build --release && ./target/release/localsend-adwaita
+  && cargo install --path . --locked && localsend-adwaita
 ```
 
-Install that build for the current user:
-
-```sh
-cargo install --path . --locked
-```
-
-### Flatpak (from source)
-
-The manifest uses the GNOME 50 runtime with vendored crate sources, so no network is
-needed during the build:
+To build the Flatpak locally instead, regenerate `flatpak/cargo-sources.json` after
+dependency changes (`python3 scripts/regen_cargo_sources.py`) and run:
 
 ```sh
 flatpak install flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
   && flatpak-builder --user --install --force-clean --install-deps-from=flathub \
-       flatpak/build flatpak/io.github.localsend_adwaita.LocalSend.json \
-  && flatpak run io.github.localsend_adwaita.LocalSend
+       flatpak/build flatpak/io.github.localsend_adwaita.LocalSend.json
 ```
 
-After changing dependencies, regenerate `flatpak/cargo-sources.json` with
-`python3 scripts/regen_cargo_sources.py`. Keep the save location inside Downloads when
-running as a Flatpak, since only `xdg-download` and network access are granted.
+Keep the save location inside Downloads when running as a Flatpak, since only
+`xdg-download` and network access are granted to the sandbox.
 
 ## Features
 
@@ -89,16 +114,16 @@ running as a Flatpak, since only `xdg-download` and network access are granted.
 
 ## Releases
 
-| Build | Trigger | Where |
-| --- | --- | --- |
-| Stable | tag `v*` (for example `v0.3.37`) | Releases, marked **Latest** |
-| Nightly | every push to `nightly` | Releases tag `nightly`, marked **Pre-release** |
-| `main` | every push | workflow artifacts under Actions |
+Everything in the Releases tab is built by CI — no manual uploading.
 
-Both release channels publish prebuilt `x86_64` tarballs (`localsend-adwaita-x86_64.tar.gz`
-and a versioned copy) plus the Flatpak bundle, so no compilation is needed to try a build.
-Nightly is rebuilt on each push to the `nightly` branch and always stays a pre-release, so
-the stable release stays the one people get by default.
+| Channel | Trigger | Published as |
+| --- | --- | --- |
+| Stable | tag `v*` (for example `v0.3.37`) | Release marked **Latest**: `localsend-adw.flatpak` + `x86_64` tarballs |
+| Nightly | every push to `nightly` | Release tag `nightly`, marked **Pre-release**, same assets |
+| `main` | every push | build artifacts under Actions (not published) |
+
+Nightly always stays a pre-release, so the stable release remains the default download and
+the Flatpak remote keeps serving stable builds.
 
 ## Protocol compatibility
 
