@@ -3482,9 +3482,9 @@ impl Ui {
             .version(env!("CARGO_PKG_VERSION"))
             .developer_name("LocalSend Adwaita Contributors")
             .comments("Share files with nearby devices, without a server or an account.")
-            .website("https://localsend.org")
-            .support_url("https://localsend.org")
-            .issue_url("https://github.com/localsend/localsend/issues")
+            .website("https://github.com/bazixv13/localsend-adwaita")
+            .support_url("https://github.com/bazixv13/localsend-adwaita")
+            .issue_url("https://github.com/bazixv13/localsend-adwaita/issues")
             .license_type(gtk::License::Gpl30)
             .build();
         dialog.add_credit_section(
