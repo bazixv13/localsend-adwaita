@@ -1,0 +1,33 @@
+localsend-adwaita
+=================
+
+Copyright © the localsend-adwaita contributors.
+
+This program is free software: you can redistribute it and/or modify it under the terms
+of the GNU General Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version. See COPYING for the full
+text.
+
+Attribution
+-----------
+
+This is an independent, unofficial implementation of the LocalSend protocol written in
+Rust with GTK 4 and libadwaita. It is not a fork of, and contains no source code from, the
+upstream LocalSend project:
+
+  LocalSend — https://localsend.org — https://github.com/localsend/localsend
+  Licensed under the Apache License, Version 2.0.
+
+The wire protocol it implements is documented at https://github.com/localsend/protocol.
+
+"LocalSend" and the LocalSend logo are used only to describe interoperability and are the
+property of the LocalSend project. This client is not affiliated with, sponsored by, or
+endorsed by the LocalSend project or its maintainers.
+
+Third-party components
+----------------------
+
+All Rust crate dependencies are distributed under their own licenses; the resolved
+versions and their license metadata are recorded in Cargo.lock and can be listed with
+`cargo license` or `cargo deny` (if installed). GTK 4, GLib and libadwaita are licensed
+under LGPL-2.1-or-later and are used through their published language bindings.

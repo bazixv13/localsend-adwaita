@@ -13,7 +13,7 @@
 #   * receiver-cancels-mid-send (needs a second real LocalSend instance)
 #   * the accept/decline decision screen timing out (needs quick_save=false)
 # Compile/static checks are separate:
-#   cargo check --offline --locked
+#   hurry cargo check --offline --locked
 #   appstreamcli compose --no-net --prefix=/ --result-root=/tmp/as-root \
 #       --data-dir=/tmp/as-data <build>/files
 set -uo pipefail

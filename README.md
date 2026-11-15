@@ -1,140 +1,147 @@
 # LocalSend for GNOME
 
-A native GNOME client for [LocalSend](https://localsend.org), built with Rust, GTK 4 and
-libadwaita. It speaks the LocalSend protocol directly, so it can exchange files with the
-official LocalSend apps on Android, iOS, Windows, macOS and Linux without an account, a
-cloud or an internet connection.
+An unofficial native GNOME client for [LocalSend](https://localsend.org). It speaks the
+LocalSend protocol directly, so it exchanges files, folders and text messages with the
+official LocalSend apps on Android, iOS, Windows, macOS and Linux — no account, no cloud,
+no internet connection.
+
+Rust · GTK 4 · libadwaita · protocol 2.2
 
 ![Application icon](data/icons/scalable/apps/io.github.localsend_adwaita.LocalSend.svg)
+
+## Install
+
+### From a release (no compiling)
+
+Downloads are built automatically for every release. This one paste installs the latest
+binary plus its icon, desktop entry and AppStream metadata into `~/.local`:
+
+```sh
+mkdir -p /tmp/ls ~/.local/bin ~/.local/share/applications ~/.local/share/metainfo ~/.local/share/icons/hicolor/scalable/apps \
+  && curl -L https://github.com/bazixv13/localsend-adwaita/releases/latest/download/localsend-adwaita-x86_64.tar.gz | tar -xz -C /tmp/ls \
+  && install -m755 /tmp/ls/localsend-adwaita ~/.local/bin/ \
+  && install -m644 /tmp/ls/io.github.localsend_adwaita.LocalSend.desktop ~/.local/share/applications/ \
+  && install -m644 /tmp/ls/io.github.localsend_adwaita.LocalSend.metainfo.xml ~/.local/share/metainfo/ \
+  && install -m644 /tmp/ls/io.github.localsend_adwaita.LocalSend.svg ~/.local/share/icons/hicolor/scalable/apps/ \
+  && rm -rf /tmp/ls \
+  && update-desktop-database ~/.local/share/applications 2>/dev/null; localsend-adwaita
+```
+
+`~/.local/bin` must be on your `PATH`. Uninstall by deleting those four files.
+
+### From source (one paste)
+
+Needs Rust 1.86+, GTK 4.10+, libadwaita 1.6+, `glib-compile-resources`, a C compiler and
+pkg-config.
+
+```sh
+# Fedora / Bazzite / Silverblue toolbox
+sudo dnf install gtk4-devel libadwaita-devel glib2-devel gcc gcc-c++ pkgconf-pkg-config cargo
+
+# Debian / Ubuntu (Ubuntu 25.04+ ships libadwaita 1.6)
+sudo apt install libgtk-4-dev libadwaita-1-dev libglib2.0-dev-bin build-essential pkg-config cargo
+```
+
+Then build and run your own copy:
+
+```sh
+git clone https://github.com/bazixv13/localsend-adwaita && cd localsend-adwaita \
+  && cargo build --release && ./target/release/localsend-adwaita
+```
+
+Install that build for the current user:
+
+```sh
+cargo install --path . --locked
+```
+
+### Flatpak (from source)
+
+The manifest uses the GNOME 50 runtime with vendored crate sources, so no network is
+needed during the build:
+
+```sh
+flatpak install flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
+  && flatpak-builder --user --install --force-clean --install-deps-from=flathub \
+       flatpak/build flatpak/io.github.localsend_adwaita.LocalSend.json \
+  && flatpak run io.github.localsend_adwaita.LocalSend
+```
+
+After changing dependencies, regenerate `flatpak/cargo-sources.json` with
+`python3 scripts/regen_cargo_sources.py`. Keep the save location inside Downloads when
+running as a Flatpak, since only `xdg-download` and network access are granted.
 
 ## Features
 
 - Automatic device discovery over UDP multicast (`224.0.0.167:53317`), with a one-time
-  HTTP sweep fallback if multicast finds nothing.
-- Send files and folders by picking them, dropping them on the window, or using the
-  `Send Folder…` action.
-- Send a text message from the compose dialog (with a Paste button) without turning it
-  into a file.
-- Receive files with an accept/decline dialog, live progress and an **Open Folder**
-  action when the transfer completes.
-- Receive LocalSend text messages in a selectable, copyable dialog without saving
-  them as files.
-- Optional PIN protection on the receiving side; the sender is asked for the PIN only when
-  the remote device requires it.
-- Encrypted transfers (HTTPS with a self-signed certificate) by default, verified against
-  the peer's LocalSend certificate fingerprint. Plain HTTP is still supported for peers
-  that announce it.
-- Native Adwaita patterns: overlay split view, status pages, header bar, toasts,
-  preferences dialog, shortcuts window and an About dialog.
-- No telemetry and no network access outside the local network.
+  HTTP sweep if multicast finds nothing.
+- Send files and folders by picking, dragging onto the window, or queueing for later;
+  send text as a message instead of a file.
+- Receive with accept/decline, live progress, Quick Save mode, tray icon and native
+  notifications (progress updates reuse a single low-priority notification).
+- Optional PIN protection; the PIN is requested from the sender only when needed.
+- HTTPS with a self-signed certificate, verified against the peer's LocalSend
+  fingerprint; plain HTTP is still supported for peers that announce it.
+- Adwaita UI throughout: overlay split view, status pages, preferences, shortcuts and an
+  About dialog. No telemetry and no traffic beyond the local network.
+- Transfer history with per-file actions (open, copy path, delete from disk), capped at
+  100 transfers with cached-copy eviction.
 
-## Requirements
+## Releases
 
-- Rust 1.86 or newer
-- GTK 4.10 or newer
-- libadwaita 1.6 or newer
-- `glib-compile-resources` (from GLib)
-- A C compiler and pkg-config
+| Build | Trigger | Where |
+| --- | --- | --- |
+| Stable | tag `v*` (for example `v0.3.37`) | Releases, marked **Latest** |
+| Nightly | every push to `nightly` | Releases tag `nightly`, marked **Pre-release** |
+| `main` | every push | workflow artifacts under Actions |
 
-On Fedora:
+Both release channels publish prebuilt `x86_64` tarballs (`localsend-adwaita-x86_64.tar.gz`
+and a versioned copy) plus the Flatpak bundle, so no compilation is needed to try a build.
+Nightly is rebuilt on each push to the `nightly` branch and always stays a pre-release, so
+the stable release stays the one people get by default.
 
-```sh
-sudo dnf install gtk4-devel libadwaita-devel glib2-devel gcc pkg-config
-```
+## Protocol compatibility
 
-On Debian/Ubuntu:
-
-```sh
-sudo apt install libgtk-4-dev libadwaita-1-dev libglib2.0-dev-bin build-essential pkg-config
-```
-
-## Build and run
-
-```sh
-cargo build --release
-./target/release/localsend-adwaita
-```
-
-Or, for a quick debug run:
-
-```sh
-cargo run
-```
-
-The application stores its settings and TLS identity in
-`~/.config/localsend-adwaita/`, and received files in `~/Downloads/LocalSend` by default
-(both are configurable; the download folder can be changed in Settings).
-
-## Flatpak
-
-The manifest lives in `flatpak/` and uses the GNOME 50 runtime with the Rust SDK
-extension. Crate sources are vendored through `flatpak/cargo-sources.json`, so the build
-itself does not need network access.
-
-```sh
-flatpak install flathub org.gnome.Platform//50 org.gnome.Sdk//50
-flatpak-builder --user --install --force-clean \
-    --install-deps-from=flathub \
-    flatpak/build flatpak/io.github.localsend_adwaita.LocalSend.json
-flatpak run io.github.localsend_adwaita.LocalSend
-```
-
-`cargo-sources.json` was generated from `Cargo.lock`. After changing dependencies,
-regenerate it before rebuilding the Flatpak.
-
-The sandbox is granted network access (required for discovery and transfers) and
-`xdg-download` for storing received files. Keep the save location inside the Downloads
-folder when running as a Flatpak, since no other host folders are exposed to the app.
-
-## LocalSend protocol compatibility
-
-Implemented protocol version: **2.2** (compatible with LocalSend 2.x peers).
+Implemented protocol version: **2.2** (LocalSend 2.x peers).
 
 | Area | Support |
 | --- | --- |
-| Discovery | UDP multicast announcement and response, `POST /api/localsend/v2/register` |
+| Discovery | UDP multicast announcement/response, `POST /api/localsend/v2/register` |
 | Device info | `GET /api/localsend/v2/info` |
-| Upload API | `prepare-upload`, streaming `upload`, `cancel` |
-| HTTPS | Self-signed certificate, SHA-256 fingerprint verification, client certificate |
-| PIN | Query parameter on `prepare-upload` |
+| Upload API | `prepare-upload`, streamed `upload`, `cancel`, skip files the receiver already has |
+| HTTPS | Self-signed certificate, SHA-256 fingerprint pinning, optional client certificate |
+| PIN | `pin` query parameter on `prepare-upload` |
 | Folders | Sent as files whose names carry the relative path |
 | Reverse transfer | Not advertised (`download: false`) |
 
-The application is intentionally a single receiving session at a time, matching the
-protocol's `409 Blocked by another session` behaviour. Incoming file names are sanitized:
-absolute paths, `..` components and control characters are rejected.
+One receiving session at a time, matching the protocol's `409 Blocked by another session`.
+Incoming names are sanitised: absolute paths, `..` components and control characters are
+rejected.
 
-## Project layout
+## Development
 
-```
-Cargo.toml                  Rust package
-build.rs                    GResource compilation for the app icon
-src/application.rs          AdwApplication setup, resources and CSS
-src/window.rs               Complete Adwaita UI and event handling
-src/core.rs                 Shared state, devices, sessions and UI events
-src/protocol.rs             LocalSend DTOs and path sanitization
-src/discovery.rs            Multicast discovery, register and HTTP scan
-src/server.rs               LocalSend receiver (axum + rustls)
-src/sender.rs               Outgoing transfers and progress reporting
-src/tls.rs                  Certificate identity and fingerprint-pinned TLS
-src/net.rs                  HTTP client helpers
-src/config.rs               JSON settings in XDG config
-src/util.rs                 Formatting and icon helpers
-data/                       Icon, CSS, desktop file and AppStream metadata
-flatpak/                    Flatpak manifest and vendored Cargo sources
+```sh
+cargo fmt
+cargo check --locked
+cargo test
+cargo run                       # debug build
+scripts/check-runtime.sh --fast # protocol + notification checks against a running app
 ```
 
-## Limitations
+`src/window.rs` holds the UI, `src/core.rs` the shared state and event bus,
+`src/protocol.rs` the DTOs and path sanitising, `src/server.rs` the receiver,
+`src/sender.rs` the outgoing transfers, `src/discovery.rs` multicast discovery and
+`src/tls.rs` the certificate identity.
 
-- The reverse transfer (download) API is not implemented; `download` is announced as
-  `false`, which is valid for protocol 2.2.
-- Protocol v1 peers are not supported.
-- A peer must be reachable on the same local network; there is no relay or internet mode.
-- Changing the port or encryption mode takes effect after restarting the app.
+## License and attribution
 
-## License
+Copyright © the localsend-adwaita contributors. Licensed under the
+**GNU General Public License v3.0 or later** — see [COPYING](COPYING).
 
-GPL-3.0-or-later. See [COPYING](COPYING).
-
-This is an unofficial GNOME client. LocalSend is developed by the LocalSend project; see
-<https://localsend.org> for the upstream apps and protocol documentation.
+This project is an independent Rust/GTK reimplementation of the LocalSend protocol. It
+contains no source code from the upstream [LocalSend](https://github.com/localsend/localsend)
+project, which is licensed under Apache-2.0 and documents the protocol at
+<https://github.com/localsend/protocol>. The LocalSend name and logo belong to the
+LocalSend project; this client is not affiliated with or endorsed by it. Third-party Rust
+crates are used under their respective licenses (see `Cargo.lock`). See [NOTICE](NOTICE)
+for details.
