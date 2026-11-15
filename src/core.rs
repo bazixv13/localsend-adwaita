@@ -52,6 +52,11 @@ pub struct ReceiveFile {
     pub sha256: Option<String>,
     pub received: AtomicU64,
     pub done: AtomicBool,
+    /// The file was already in the download folder, so it is not uploaded
+    /// again and must not be copied into the history cache.
+    pub existing: bool,
+    /// Optional timestamps announced by the sender.
+    pub metadata: Option<crate::protocol::FileMetadataExt>,
     pub text: Mutex<Option<String>>,
     pub path: Mutex<Option<PathBuf>>,
 }
@@ -59,9 +64,17 @@ pub struct ReceiveFile {
 pub struct ReceiveSession {
     pub id: String,
     pub peer_alias: String,
+    pub peer_ip: String,
+    pub peer_port: u16,
+    pub peer_protocol: String,
+    pub peer_fingerprint: String,
     pub files: Vec<Arc<ReceiveFile>>,
     pub total_bytes: u64,
     pub done_bytes: AtomicU64,
+    /// Bytes written to disk so far. Peers upload several files at once, so
+    /// progress must come from one shared counter instead of per-request
+    /// snapshots, which would make the total jump up and down.
+    pub received_bytes: AtomicU64,
     pub files_done: AtomicUsize,
     pub canceled: AtomicBool,
     pub directory: PathBuf,
@@ -637,6 +650,26 @@ impl Core {
 
     pub fn take_session(&self, id: &str) -> Option<Arc<ReceiveSession>> {
         self.sessions.lock().unwrap().remove(id)
+    }
+
+    pub fn receive_file_names(&self, session_id: &str) -> Option<Vec<String>> {
+        let sessions = self.sessions.lock().unwrap();
+        let session = sessions.get(session_id)?;
+        Some(session.files.iter().map(|file| file.name.clone()).collect())
+    }
+
+    /// Names plus completion state, so the UI can mark which files of a
+    /// multi-file receive are done and which are still waiting.
+    pub fn receive_file_done(&self, session_id: &str) -> Option<Vec<(String, bool)>> {
+        let sessions = self.sessions.lock().unwrap();
+        let session = sessions.get(session_id)?;
+        Some(
+            session
+                .files
+                .iter()
+                .map(|file| (file.name.clone(), file.done.load(Ordering::SeqCst)))
+                .collect(),
+        )
     }
 
     pub fn find_session_file(

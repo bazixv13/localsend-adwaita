@@ -1,9 +1,10 @@
 use crate::core::{Core, Event};
 use crate::net;
 use crate::protocol::{
-    api_url, percent_encode, FileMetadata, PrepareUploadRequest, PrepareUploadResponse,
-    DEFAULT_PORT,
+    api_url, percent_encode, FileMetadata, FileMetadataExt, PrepareUploadRequest,
+    PrepareUploadResponse, DEFAULT_PORT,
 };
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read};
@@ -101,7 +102,7 @@ fn send_text(
             file_name: "message.txt".to_string(),
             size: text.len() as u64,
             file_type: "text".to_string(),
-            sha256: None,
+            sha256: Some(crate::util::to_hex(&Sha256::digest(text.as_bytes()))),
             preview: Some(text.clone()),
             metadata: None,
         },
@@ -296,9 +297,9 @@ fn send(
                 file_name: file.name.clone(),
                 size: file.size,
                 file_type: file.mime.clone(),
-                sha256: None,
+                sha256: file_sha256(&file.path),
                 preview: None,
-                metadata: None,
+                metadata: file_metadata(&file.path),
             },
         );
         id_for_file.push(id);
@@ -391,12 +392,18 @@ fn send(
         }
         let id = &id_for_file[index];
         let Some(token) = prepare.files.get(id) else {
-            core.emit(Event::SendFailed {
-                device: device_key,
-                message: "The device rejected some of the files".to_string(),
+            // A file without a token is one the receiver already has: the
+            // upload API allows partial acceptance, so skip it and keep
+            // going with the remaining files.
+            done_before += file.size;
+            core.emit(Event::SendProgress {
+                file_name: file.name.clone(),
+                done: done_before.min(total_bytes),
+                total: total_bytes,
+                files_done: index + 1,
+                files_total: file_count,
             });
-            cancel_session(&agent, &ip, port, protocol, &session_id);
-            return;
+            continue;
         };
         let upload_url = format!(
             "{}?sessionId={}&fileId={}&token={}",
@@ -484,6 +491,41 @@ fn send(
         files: file_count,
         total_bytes,
     });
+}
+
+/// Announces the file's timestamps (protocol 2.1+), so the receiver can keep
+/// the original dates instead of stamping the save time.
+fn file_metadata(path: &Path) -> Option<FileMetadataExt> {
+    let metadata = std::fs::metadata(path).ok()?;
+    let modified = metadata.modified().ok().and_then(format_timestamp);
+    let accessed = metadata.accessed().ok().and_then(format_timestamp);
+    if modified.is_none() && accessed.is_none() {
+        return None;
+    }
+    Some(FileMetadataExt { modified, accessed })
+}
+
+fn format_timestamp(time: std::time::SystemTime) -> Option<String> {
+    let seconds = time.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+    let date = gtk::glib::DateTime::from_unix_utc(i64::try_from(seconds).ok()?).ok()?;
+    date.format_iso8601().ok().map(|value| value.to_string())
+}
+
+/// Hashes a file before it is announced, so the receiver can verify the
+/// upload. The protocol makes `sha256` optional, but peers check it when it
+/// is present.
+fn file_sha256(path: &Path) -> Option<String> {
+    let mut file = File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).ok()?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Some(crate::util::to_hex(&hasher.finalize()))
 }
 
 fn cancel_session(agent: &ureq::Agent, ip: &str, port: u16, protocol: &str, session_id: &str) {
@@ -657,6 +699,18 @@ mod tests {
     use std::io::{BufRead, BufReader, Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::sync::mpsc;
+
+    #[test]
+    fn hashes_outgoing_files_for_receiver_verification() {
+        let path = std::env::temp_dir().join(format!("localsend-hash-{}", uuid::Uuid::new_v4()));
+        std::fs::write(&path, b"hello").unwrap();
+        assert_eq!(
+            file_sha256(&path).as_deref(),
+            Some("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+        );
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(file_sha256(Path::new("/nonexistent/localsend-hash")), None);
+    }
 
     fn read_http(stream: &mut TcpStream) -> (String, Vec<u8>, bool, bool) {
         let mut reader = BufReader::new(stream.try_clone().unwrap());

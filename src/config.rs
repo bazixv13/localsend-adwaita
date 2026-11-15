@@ -28,6 +28,8 @@ pub struct Config {
     pub quick_save: bool,
     /// Keep cached copies of received files in history for quick access.
     pub history_cache: bool,
+    /// Start without showing the window when a tray icon is available.
+    pub start_in_background: bool,
 }
 
 impl Default for Config {
@@ -45,6 +47,7 @@ impl Default for Config {
             tray_icon: true,
             quick_save: true,
             history_cache: true,
+            start_in_background: false,
         }
     }
 }
