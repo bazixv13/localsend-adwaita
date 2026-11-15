@@ -19,9 +19,14 @@ jobs:
   build:
     name: Build Flatpak bundle
     runs-on: ubuntu-24.04
-    container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
-      options: --privileged
+    # A plain runner rather than the flatpak-github-actions container.
+    # That image is a freedesktop SDK whose own runtime update fails inside
+    # the container with "Invalid cross-device link" (an overlayfs limit),
+    # which aborted every build before it started. Installing flatpak and
+    # flatpak-builder on the runner avoids the problem entirely.
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -30,15 +35,41 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Build
-        uses: flatpak/flatpak-github-actions/flatpak-builder@v6.8
-        with:
-          bundle: localsend-adw.flatpak
-          manifest-path: flatpak/io.github.localsend_adwaita.LocalSend.json
-          cache-key: flatpak-builder-${{ github.sha }}
-          arch: ${{ matrix.arch }}
-          branch: stable
-          verbose: true
+      - name: Install flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            flatpak flatpak-builder ostree rsync ca-certificates
+          flatpak --version
+          flatpak-builder --version
+          sudo flatpak remote-add --if-not-exists flathub \
+            https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Build bundle
+        run: |
+          flatpak-builder --force-clean --disable-rofiles-fuse \
+            --install-deps-from=flathub \
+            --repo=repo \
+            --default-branch=stable \
+            --arch="${{ matrix.arch }}" \
+            --state-dir=.flatpak-builder \
+            build-dir \
+            flatpak/io.github.localsend_adwaita.LocalSend.json
+
+          flatpak build-bundle \
+            --arch="${{ matrix.arch }}" \
+            --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
+            repo localsend-adw.flatpak \
+            io.github.localsend_adwaita.LocalSend stable
+
+          ls -la localsend-adw.flatpak
+
+      - name: Verify the bundle installs
+        run: |
+          export FLATPAK_USER_DIR="$RUNNER_TEMP/flatpak-check"
+          mkdir -p "$FLATPAK_USER_DIR"
+          flatpak install --user --noninteractive --no-deps -y localsend-adw.flatpak
+          flatpak list --user --columns=ref,version | grep -i localsend
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
