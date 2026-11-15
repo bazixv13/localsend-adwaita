@@ -46,6 +46,11 @@
   </keywords>
 
   <releases>
+    <release version="0.3.38" date="2026-11-15">
+      <description>
+        <p>Stop the history view from interrupting transfers with a refresh notice, and build releases on Node 24.</p>
+      </description>
+    </release>
     <release version="0.3.37" date="2026-11-15">
       <description>
         <p>Publish automated stable and nightly builds, document installation, and clarify licensing and attribution.</p>
