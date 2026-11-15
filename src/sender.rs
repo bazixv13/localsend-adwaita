@@ -394,6 +394,20 @@ fn send(
     let done_bytes = Arc::new(AtomicU64::new(0));
     let files_done = Arc::new(AtomicUsize::new(0));
 
+    // Tell the UI what it is about to move before the first byte lands, so the
+    // transfer view shows the file count and total size instead of sitting on
+    // "Connecting to the device…" until the first upload reports.
+    core.emit(Event::SendProgress {
+        file_name: files
+            .first()
+            .map(|file| file.name.clone())
+            .unwrap_or_default(),
+        done: 0,
+        total: total_bytes,
+        files_done: 0,
+        files_total: file_count,
+    });
+
     thread::scope(|scope| {
         for _ in 0..parallel {
             scope.spawn(|| {
