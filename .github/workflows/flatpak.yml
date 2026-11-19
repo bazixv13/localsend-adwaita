@@ -55,8 +55,6 @@ jobs:
             https://flathub.org/repo/flathub.flatpakrepo
 
       - name: Build bundle
-        env:
-          G_MESSAGES_DEBUG: all
         run: |
           flatpak-builder --user --force-clean --disable-rofiles-fuse \
             --install-deps-from=flathub \
