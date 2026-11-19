@@ -38,8 +38,12 @@ jobs:
       - name: Install flatpak tooling
         run: |
           sudo apt-get update
+          # elfutils provides eu-strip. flatpak-builder splits debug info out of
+          # every built binary and aborts the first module with "Failed to
+          # execute child process eu-strip" when it is missing, which is what
+          # kept failing the job before the app was even compiled.
           sudo apt-get install -y --no-install-recommends \
-            flatpak flatpak-builder ostree rsync ca-certificates
+            flatpak flatpak-builder ostree rsync ca-certificates elfutils
           flatpak --version
           flatpak-builder --version
           # Install the runtime and SDK into the user installation. A system
@@ -70,10 +74,14 @@ jobs:
 
       - name: Verify the bundle installs
         run: |
-          export FLATPAK_USER_DIR="$RUNNER_TEMP/flatpak-check"
-          mkdir -p "$FLATPAK_USER_DIR"
-          flatpak install --user --noninteractive --no-deps -y localsend-adw.flatpak
+          # Install into the same user installation the build used, so the
+          # GNOME runtime pulled in above is available. A fresh
+          # FLATPAK_USER_DIR would have no runtime and installing with
+          # --no-deps would fail on the unresolved runtime dependency.
+          flatpak install --user --noninteractive -y localsend-adw.flatpak
           flatpak list --user --columns=ref,version | grep -i localsend
+          flatpak uninstall --user --noninteractive -y \
+            io.github.localsend_adwaita.LocalSend
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
@@ -88,4 +96,7 @@ jobs:
         with:
           files: localsend-adw.flatpak
           fail_on_unmatched_files: true
+          # Beta tags stay pre-releases so the newest stable tag keeps
+          # serving /releases/latest.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
