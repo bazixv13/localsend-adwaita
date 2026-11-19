@@ -8,17 +8,15 @@ data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
 extensions="$data_dir/nautilus-python/extensions"
 
 if ! python3 - <<'PY' >/dev/null 2>&1
-import gi
+import glob
 
-for version in ("4.0", "3.0"):
-    try:
-        gi.require_version("Nautilus", version)
-        from gi.repository import Nautilus  # noqa: F401
-    except (ValueError, ImportError):
-        continue
-    break
-else:
-    raise SystemExit(1)
+dirs = (
+    "/usr/lib64/girepository-1.0",
+    "/usr/lib/girepository-1.0",
+    "/usr/lib/x86_64-linux-gnu/girepository-1.0",
+)
+found = [p for directory in dirs for p in glob.glob(directory + "/Nautilus-*.typelib")]
+raise SystemExit(0 if found else 1)
 PY
 then
     echo "The Nautilus Python bindings were not found." >&2
