@@ -3,6 +3,7 @@ mod config;
 mod core;
 mod discovery;
 mod history;
+mod nautilus;
 mod net;
 mod protocol;
 mod sender;

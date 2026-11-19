@@ -47,6 +47,31 @@
   </keywords>
 
   <releases>
+    <release version="0.3.50-beta" date="2026-11-19" type="development">
+      <description>
+        <p>Show a dedicated progress dialog for transfers started from the GNOME Files menu item, with the current file, progress and a cancel button.</p>
+      </description>
+    </release>
+    <release version="0.3.49-beta" date="2026-11-19" type="development">
+      <description>
+        <p>Show notifications from the Settings and History dialogs inside those dialogs, so they are no longer hidden behind them.</p>
+      </description>
+    </release>
+    <release version="0.3.48-beta" date="2026-11-19" type="development">
+      <description>
+        <p>Send files from GNOME Files to the copy of the app that is already running, so a Flatpak hand-off can read the files and no second instance is started.</p>
+      </description>
+    </release>
+    <release version="0.3.47-beta" date="2026-11-19" type="development">
+      <description>
+        <p>Detect the Nautilus Python bindings and show the install command for the current distribution when they are missing.</p>
+      </description>
+    </release>
+    <release version="0.3.46-beta" date="2026-11-19" type="development">
+      <description>
+        <p>Install and remove the “Send with LocalSend” menu item for GNOME Files from the Settings switch, including when running as a Flatpak.</p>
+      </description>
+    </release>
     <release version="0.3.45-beta" date="2026-11-19" type="development">
       <description>
         <p>Add a “Send with LocalSend” switch to Settings so the GNOME Files menu item can be turned off, and keep opening files from the file manager working when the app is not running yet.</p>

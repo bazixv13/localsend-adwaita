@@ -101,18 +101,22 @@ Keep the save location inside Downloads when running as a Flatpak, since only
 Right-click files or folders in GNOME Files and pick **Send with LocalSend**. The app
 opens with the selection already queued, ready for a device.
 
+Turn it on or off in **Settings → GNOME Files**, which copies the menu item into
+`~/.local/share/nautilus-python/extensions` (and removes it again). The Flatpak is
+granted access to that one directory for this purpose. Files only loads extensions at
+startup, so restart Files (or log out and back in) after enabling it.
+
+The menu item needs the Nautilus Python bindings from your distribution:
+
 ```sh
-git clone https://github.com/bazixv13/localsend-adwaita && cd localsend-adwaita \
-  && ./scripts/install-nautilus-extension.sh
+sudo dnf install nautilus-python      # Fedora
+sudo apt install python3-nautilus     # Debian and Ubuntu
 ```
 
-The script installs the menu item for your user, plus the desktop entry and icon it
-launches; it needs the Nautilus Python bindings (`nautilus-python` on Fedora,
-`nautilus-python` or `python3-nautilus` on Debian and Ubuntu). It works with both the
-Flatpak and the release-binary install. Remove the menu item again with:
+Release tarballs and source checkouts can also install it without the app:
 
 ```sh
-rm ~/.local/share/nautilus-python/extensions/localsend_adwaita.py && nautilus -q
+./scripts/install-nautilus-extension.sh
 ```
 
 The same hand-off works from a terminal: `localsend-adwaita photo.jpg report.pdf` queues

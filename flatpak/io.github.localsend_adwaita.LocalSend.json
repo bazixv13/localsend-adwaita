@@ -14,6 +14,7 @@
         "--socket=fallback-x11",
         "--device=dri",
         "--filesystem=xdg-download",
+        "--filesystem=~/.local/share/nautilus-python/extensions:create",
         "--talk-name=org.freedesktop.Notifications",
         "--talk-name=org.kde.StatusNotifierWatcher",
         "--env=MALLOC_ARENA_MAX=2"

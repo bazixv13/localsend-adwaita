@@ -1,6 +1,7 @@
 use crate::application::APP_ID;
 use crate::core::{Core, Event, IncomingFileInfo, IncomingRequest};
 use crate::history::{HistoryEntry, HistoryItem, Resolution};
+use crate::nautilus;
 use crate::sender;
 use crate::util;
 use adw::prelude::*;
@@ -26,6 +27,9 @@ pub fn build(app: &adw::Application, core: Arc<Core>) -> adw::ApplicationWindow 
     ui.spawn_event_loop(receiver);
     ui.refresh_devices();
     ui.show_empty();
+    // Keep the Files menu item in step with the saved preference, refreshing
+    // the script after an update or restoring it if it was deleted.
+    nautilus::sync(core.config().files_integration);
     // Files can arrive before the window exists (D-Bus activation, or "open"
     // delivered ahead of "activate"), so hand them over now.
     let pending: Vec<PathBuf> =
@@ -35,7 +39,7 @@ pub fn build(app: &adw::Application, core: Arc<Core>) -> adw::ApplicationWindow 
         // handler that is already building the window.
         ui.window.set_visible(true);
         ui.window.present();
-        ui.queue_files(pending);
+        ui.queue_files_from_files(pending);
     }
     ui.window.clone()
 }
@@ -102,6 +106,10 @@ struct Ui {
 
     selected: RefCell<Option<String>>,
     transfer: RefCell<Option<TransferState>>,
+    /// Set when the file manager handed files over, so the send they start
+    /// gets the dedicated progress dialog.
+    files_handoff: Cell<bool>,
+    progress_dialog: RefCell<Option<ProgressDialog>>,
     device_revision: Cell<u64>,
 
     queue: RefCell<Vec<QueueItem>>,
@@ -116,6 +124,12 @@ struct Ui {
     pending_text: RefCell<Option<PendingText>>,
     pending_decision: RefCell<Option<PendingDecision>>,
     history_dialog: RefCell<Option<(adw::PreferencesDialog, adw::PreferencesPage)>>,
+    /// Kept alive while open: a presented dialog is destroyed as soon as the
+    /// last reference is dropped.
+    settings_dialog: RefCell<Option<adw::PreferencesDialog>>,
+    /// The dialog currently presented above the window. It has its own toast
+    /// overlay; a toast added to the window would be drawn behind it.
+    open_dialog: RefCell<Option<adw::PreferencesDialog>>,
     history_groups: RefCell<Vec<adw::PreferencesGroup>>,
     history_expanded: RefCell<HashSet<String>>,
     /// Set while a history rebuild is queued, so a burst of events (a transfer
@@ -239,7 +253,7 @@ pub fn queue_opened_files(paths: Vec<PathBuf>) {
     match ui {
         Some(ui) => {
             ui.show_window();
-            ui.queue_files(paths);
+            ui.queue_files_from_files(paths);
         }
         // Keep them until the window is built instead of dropping them.
         None => PENDING_OPENED_FILES.with(|slot| slot.borrow_mut().extend(paths)),
@@ -276,6 +290,20 @@ struct TransferState {
 enum TransferKind {
     Sending,
     Receiving,
+}
+
+/// Progress for a send that started in the file manager, shown in a dialog of
+/// its own so that hand-off does not depend on the window being in front.
+struct ProgressDialog {
+    dialog: adw::Dialog,
+    stack: gtk::Stack,
+    file: gtk::Label,
+    bar: gtk::ProgressBar,
+    detail: gtk::Label,
+    cancel: gtk::Button,
+    result_icon: gtk::Image,
+    result_title: gtk::Label,
+    result_body: gtk::Label,
 }
 
 impl Ui {
@@ -801,6 +829,8 @@ impl Ui {
             banner,
             selected: RefCell::new(None),
             transfer: RefCell::new(None),
+            files_handoff: Cell::new(false),
+            progress_dialog: RefCell::new(None),
             device_revision: Cell::new(0),
             queue: RefCell::new(Vec::new()),
             queued_texts: RefCell::new(Vec::new()),
@@ -811,6 +841,8 @@ impl Ui {
             pending_text: RefCell::new(None),
             pending_decision: RefCell::new(None),
             history_dialog: RefCell::new(None),
+            settings_dialog: RefCell::new(None),
+            open_dialog: RefCell::new(None),
             history_groups: RefCell::new(Vec::new()),
             history_expanded: RefCell::new(HashSet::new()),
             history_refresh_queued: Cell::new(false),
@@ -1078,6 +1110,176 @@ impl Ui {
         self.indicator_title.set_label(&title);
         self.indicator_detail.set_label(&detail);
         self.transfer_indicator.set_visible(true);
+    }
+
+    /// Opens the progress dialog a Files hand-off uses. Built on demand, so it
+    /// costs nothing until the menu item is actually used.
+    fn show_progress_dialog(self: &Rc<Self>, alias: &str, count: usize) {
+        if self.progress_dialog.borrow().is_some() {
+            return;
+        }
+
+        let step = gtk::Label::new(Some(&format!("Sending to {alias}")));
+        step.add_css_class("title-3");
+        step.set_wrap(true);
+        step.set_justify(gtk::Justification::Center);
+        let file = gtk::Label::new(Some("Preparing files…"));
+        file.add_css_class("caption");
+        file.add_css_class("dim-label");
+        file.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+        file.set_max_width_chars(42);
+        let bar = gtk::ProgressBar::new();
+        bar.set_show_text(false);
+        bar.set_fraction(0.0);
+        let detail = gtk::Label::new(Some(&format!(
+            "Connecting to the device… {count} item{}",
+            plural(count)
+        )));
+        detail.add_css_class("caption");
+        detail.add_css_class("dim-label");
+        let cancel = gtk::Button::with_label("Cancel");
+        cancel.add_css_class("pill");
+        cancel.add_css_class("destructive-action");
+        cancel.set_halign(gtk::Align::Center);
+
+        let progress_box = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        progress_box.set_margin_top(24);
+        progress_box.set_margin_bottom(24);
+        progress_box.set_margin_start(24);
+        progress_box.set_margin_end(24);
+        progress_box.append(&step);
+        progress_box.append(&file);
+        progress_box.append(&bar);
+        progress_box.append(&detail);
+        progress_box.append(&cancel);
+
+        let result_icon = gtk::Image::from_icon_name("emblem-ok-symbolic");
+        result_icon.set_pixel_size(64);
+        result_icon.add_css_class("dim-label");
+        let result_title = gtk::Label::new(None);
+        result_title.add_css_class("title-2");
+        result_title.set_wrap(true);
+        result_title.set_justify(gtk::Justification::Center);
+        let result_body = gtk::Label::new(None);
+        result_body.add_css_class("dim-label");
+        result_body.set_wrap(true);
+        result_body.set_justify(gtk::Justification::Center);
+        let done = gtk::Button::with_label("Done");
+        done.add_css_class("pill");
+        done.add_css_class("suggested-action");
+        done.set_halign(gtk::Align::Center);
+
+        let result_box = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        result_box.set_margin_top(24);
+        result_box.set_margin_bottom(24);
+        result_box.set_margin_start(24);
+        result_box.set_margin_end(24);
+        result_box.append(&result_icon);
+        result_box.append(&result_title);
+        result_box.append(&result_body);
+        result_box.append(&done);
+
+        let stack = gtk::Stack::new();
+        stack.set_transition_type(gtk::StackTransitionType::Crossfade);
+        stack.add_named(&progress_box, Some("progress"));
+        stack.add_named(&result_box, Some("result"));
+        stack.set_visible_child_name("progress");
+
+        let dialog = adw::Dialog::new();
+        dialog.set_title("Sending Files");
+        dialog.set_content_width(360);
+        let toolbar = adw::ToolbarView::new();
+        toolbar.add_top_bar(&adw::HeaderBar::new());
+        toolbar.set_content(Some(&stack));
+        dialog.set_child(Some(&toolbar));
+
+        cancel.connect_clicked({
+            let ui = self.clone();
+            move |_| ui.cancel_transfer()
+        });
+        done.connect_clicked({
+            let dialog = dialog.clone();
+            move |_| {
+                dialog.close();
+            }
+        });
+        dialog.connect_closed({
+            let ui = self.clone();
+            move |_| {
+                ui.progress_dialog.borrow_mut().take();
+            }
+        });
+
+        *self.progress_dialog.borrow_mut() = Some(ProgressDialog {
+            dialog: dialog.clone(),
+            stack,
+            file,
+            bar,
+            detail,
+            cancel,
+            result_icon,
+            result_title,
+            result_body,
+        });
+        dialog.present(Some(&self.window));
+    }
+
+    fn update_progress_dialog(
+        &self,
+        done: u64,
+        total: u64,
+        file_name: &str,
+        files_done: usize,
+        files_total: usize,
+    ) {
+        let view = self.progress_dialog.borrow();
+        let Some(view) = view.as_ref() else {
+            return;
+        };
+        let fraction = if total == 0 {
+            0.0
+        } else {
+            (done as f64 / total as f64).clamp(0.0, 1.0)
+        };
+        view.bar.set_fraction(fraction);
+        let label = if files_total > 1 {
+            format!("{files_total} files")
+        } else {
+            file_name.to_string()
+        };
+        view.file.set_label(&label);
+        view.detail.set_label(&format!(
+            "{} of {} · {} of {} files",
+            util::human_bytes(done),
+            util::human_bytes(total),
+            files_done,
+            files_total
+        ));
+    }
+
+    /// Turns the progress dialog into its result page once the send ends.
+    fn finish_progress_dialog(&self, icon: &str, title: &str, body: &str) {
+        let view = self.progress_dialog.borrow();
+        let Some(view) = view.as_ref() else {
+            return;
+        };
+        view.result_icon.set_icon_name(Some(icon));
+        view.result_title.set_label(title);
+        view.result_body.set_label(body);
+        view.cancel.set_visible(false);
+        view.stack.set_visible_child_name("result");
+        view.dialog.set_title(title);
+    }
+
+    fn close_progress_dialog(&self) {
+        let dialog = self
+            .progress_dialog
+            .borrow()
+            .as_ref()
+            .map(|view| view.dialog.clone());
+        if let Some(dialog) = dialog {
+            dialog.force_close();
+        }
     }
 
     fn sync_search_status(&self) {
@@ -1500,6 +1702,7 @@ impl Ui {
                         device: device.clone(),
                     },
                 );
+                self.finish_progress_dialog("emblem-ok-symbolic", "Files Sent", &description);
                 self.toast(&format!("Files sent to {alias}"));
                 self.notify_transfer(&format!("Sent to {alias}"), &description, true);
                 self.advance_queue();
@@ -1544,6 +1747,11 @@ impl Ui {
                     "Back",
                     ResultAction::Back,
                 );
+                self.finish_progress_dialog(
+                    "dialog-warning-symbolic",
+                    "Transfer Declined",
+                    &format!("{alias} declined the transfer. Nothing was sent."),
+                );
                 self.toast("The transfer was declined");
                 self.queued_texts.borrow_mut().clear();
                 self.queue_device.borrow_mut().take();
@@ -1559,6 +1767,11 @@ impl Ui {
                     &format!("{message}. It was removed from the device list."),
                     "Back",
                     ResultAction::Back,
+                );
+                self.finish_progress_dialog(
+                    "network-offline-symbolic",
+                    "Device Unavailable",
+                    &format!("{message}. It was removed from the device list."),
                 );
                 self.toast(&message);
                 self.queued_texts.borrow_mut().clear();
@@ -1582,12 +1795,18 @@ impl Ui {
                     "Back",
                     ResultAction::Back,
                 );
+                self.finish_progress_dialog(
+                    "dialog-warning-symbolic",
+                    "Transfer Failed",
+                    &description,
+                );
                 self.notify_transfer("Transfer failed", &description, true);
                 self.queued_texts.borrow_mut().clear();
                 self.queue_device.borrow_mut().take();
             }
             Event::SendNeedsPin { device, paths } => {
                 self.transfer.borrow_mut().take();
+                self.close_progress_dialog();
                 self.show_pin_dialog(device, paths, None);
             }
             Event::SendTextNeedsPin { device, text } => {
@@ -1740,6 +1959,17 @@ impl Ui {
             }
         }
         (files, texts)
+    }
+
+    /// Files the file manager handed to the app: the send they lead to shows a
+    /// progress dialog of its own, so "Send with LocalSend" does not depend on
+    /// the window being in front.
+    fn queue_files_from_files(self: &Rc<Self>, paths: Vec<PathBuf>) {
+        if paths.is_empty() {
+            return;
+        }
+        self.files_handoff.set(true);
+        self.queue_files(paths);
     }
 
     fn queue_files(self: &Rc<Self>, paths: Vec<PathBuf>) {
@@ -2164,6 +2394,7 @@ impl Ui {
             files_done,
             files_total
         ));
+        self.update_progress_dialog(done, total, file_name, files_done, files_total);
         self.refresh_transfer_indicator();
     }
 
@@ -2510,6 +2741,8 @@ impl Ui {
         }
 
         self.selected.replace(Some(device_key.clone()));
+        let from_files = self.files_handoff.replace(false);
+        let count = paths.len();
         let cancel = Arc::new(AtomicBool::new(false));
         *self.transfer.borrow_mut() = Some(TransferState {
             kind: TransferKind::Sending,
@@ -2531,10 +2764,14 @@ impl Ui {
         self.window_title.set_subtitle("Sending Files");
         self.refresh_transfer_indicator();
 
+        if from_files {
+            self.show_progress_dialog(&info.alias, count);
+        }
         sender::spawn(self.core.clone(), device_key, paths, pin, cancel);
     }
 
     fn cancel_transfer(self: &Rc<Self>) {
+        self.close_progress_dialog();
         let Some(state) = self.transfer.borrow_mut().take() else {
             // Nothing is running, but the window may still show a stale
             // transfer page, so the button always leaves that view.
@@ -2862,6 +3099,7 @@ impl Ui {
     fn show_history(self: &Rc<Self>) {
         if let Some((dialog, page)) = self.history_dialog.borrow().clone() {
             self.rebuild_history_page(&page, &dialog);
+            *self.open_dialog.borrow_mut() = Some(dialog.clone());
             dialog.present(Some(&self.window));
             return;
         }
@@ -2875,7 +3113,9 @@ impl Ui {
 
         dialog.connect_closed({
             let ui = self.clone();
+            let dialog = dialog.clone();
             move |_| {
+                ui.clear_open_dialog(&dialog);
                 ui.history_dialog.borrow_mut().take();
                 ui.history_groups.borrow_mut().clear();
                 ui.history_expanded.borrow_mut().clear();
@@ -2886,6 +3126,7 @@ impl Ui {
 
         *self.history_dialog.borrow_mut() = Some((dialog.clone(), page.clone()));
         self.rebuild_history_page(&page, &dialog);
+        *self.open_dialog.borrow_mut() = Some(dialog.clone());
         dialog.present(Some(&self.window));
     }
 
@@ -3502,7 +3743,7 @@ impl Ui {
         let files_group = adw::PreferencesGroup::builder()
             .title("GNOME Files")
             .description(
-                "Adds “Send with LocalSend” to the context menu in Files. Needs the optional GNOME Files extension from the project's install script.",
+                "Adds “Send with LocalSend” to the context menu in Files. Needs the Nautilus Python bindings from your distribution.",
             )
             .build();
         let files_row = adw::SwitchRow::builder()
@@ -3512,19 +3753,116 @@ impl Ui {
         files_row.set_active(config.files_integration);
         files_row.connect_active_notify({
             let core = self.core.clone();
+            let ui = self.clone();
+            // Setting the switch back after a failure would re-enter here.
+            let guard = Rc::new(Cell::new(false));
             move |row| {
-                core.update_config(|config| config.files_integration = row.is_active());
+                if guard.get() {
+                    return;
+                }
+                let enabled = row.is_active();
+                match ui.set_files_integration(enabled) {
+                    Ok(()) => {}
+                    Err(error) => {
+                        eprintln!("GNOME Files integration: {error}");
+                        if enabled {
+                            guard.set(true);
+                            row.set_active(false);
+                            guard.set(false);
+                            core.update_config(|config| config.files_integration = false);
+                            ui.show_files_install_error();
+                        } else {
+                            ui.toast("Could not remove the Files menu item");
+                        }
+                    }
+                }
             }
         });
         files_group.add(&files_row);
+        // Nothing to say when the bindings are present: the switch just works.
+        if nautilus::python_bindings_installed() == Some(false) {
+            files_group.add(&self.files_bindings_hint());
+        }
         page.add(&files_group);
 
         dialog.add(&page);
-        dialog.connect_closed(|_| {
-            Ui::trim_memory();
-            glib::idle_add_local_once(Ui::trim_memory);
+        dialog.connect_closed({
+            let ui = self.clone();
+            let dialog = dialog.clone();
+            move |_| {
+                ui.clear_open_dialog(&dialog);
+                Ui::trim_memory();
+                glib::idle_add_local_once(Ui::trim_memory);
+            }
         });
+        *self.settings_dialog.borrow_mut() = Some(dialog.clone());
+        *self.open_dialog.borrow_mut() = Some(dialog.clone());
         dialog.present(Some(&self.window));
+    }
+
+    /// Tells the user which package to install and offers the command for
+    /// their distribution, only while the Nautilus bindings are missing.
+    fn files_bindings_hint(self: &Rc<Self>) -> gtk::Box {
+        let hint = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        hint.set_margin_top(8);
+        hint.set_margin_bottom(8);
+        hint.set_margin_start(12);
+        hint.set_margin_end(12);
+
+        let heading = gtk::Label::new(Some("Python Bindings Missing"));
+        heading.set_halign(gtk::Align::Start);
+        heading.add_css_class("heading");
+        let body = gtk::Label::builder()
+            .label("Files cannot load the menu item without the Nautilus Python bindings. Run this command, then restart Files.")
+            .wrap(true)
+            .xalign(0.0)
+            .build();
+        body.add_css_class("dim-label");
+        hint.append(&heading);
+        hint.append(&body);
+
+        let Some(command) = nautilus::install_command() else {
+            let fallback = gtk::Label::builder()
+                .label(
+                    "Install the nautilus-python package with your distribution's package manager.",
+                )
+                .wrap(true)
+                .xalign(0.0)
+                .build();
+            fallback.add_css_class("dim-label");
+            hint.append(&fallback);
+            return hint;
+        };
+
+        // A text view rather than a label, so the command can be selected and
+        // copied by hand as well as with the button.
+        let view = gtk::TextView::builder()
+            .editable(false)
+            .monospace(true)
+            .cursor_visible(false)
+            .top_margin(8)
+            .bottom_margin(8)
+            .left_margin(10)
+            .right_margin(10)
+            .build();
+        view.buffer().set_text(&command);
+        let frame = gtk::Frame::builder().child(&view).build();
+        frame.add_css_class("card");
+
+        let copy = gtk::Button::builder()
+            .label("Copy Command")
+            .halign(gtk::Align::Start)
+            .build();
+        copy.add_css_class("pill");
+        let ui = self.clone();
+        copy.connect_clicked(move |_| {
+            ui.copy_text(&command);
+            ui.toast("Install command copied");
+        });
+
+        hint.append(&frame);
+        hint.append(&copy);
+        hint
     }
 
     fn show_shortcuts(&self) {
@@ -3559,10 +3897,67 @@ impl Ui {
         dialog.present(Some(&self.window));
     }
 
+    /// Stores the preference and copies the menu item in or out to match.
+    fn set_files_integration(self: &Rc<Self>, enabled: bool) -> Result<(), String> {
+        self.core
+            .update_config(|config| config.files_integration = enabled);
+        if enabled {
+            nautilus::install()?;
+            if nautilus::python_bindings_installed() == Some(false) {
+                self.toast("Install the Python bindings, then restart Files");
+            } else if nautilus::restart_files() {
+                self.toast("Added to the Files menu");
+            } else {
+                self.toast("Restart Files to see the menu item");
+            }
+        } else {
+            nautilus::uninstall()?;
+            self.toast("Removed from the Files menu");
+        }
+        Ok(())
+    }
+
+    /// Shown when the extension cannot be copied out of the app.
+    fn show_files_install_error(&self) {
+        let alert = adw::AlertDialog::builder()
+            .heading("Installation Failed")
+            .body("Could not install the Files menu item. Make sure this directory exists and is writable:")
+            .build();
+        alert.add_response("close", "Close");
+        alert.set_default_response(Some("close"));
+        alert.set_close_response("close");
+
+        let path = nautilus::extensions_dir();
+        let path_label = gtk::Label::builder()
+            .label(path.display().to_string())
+            .selectable(true)
+            .wrap(true)
+            .wrap_mode(gtk::pango::WrapMode::WordChar)
+            .css_classes(["dim-label"])
+            .build();
+        alert.set_extra_child(Some(&path_label));
+        alert.present(Some(&self.window));
+    }
+
     fn toast(&self, message: &str) {
         let toast = adw::Toast::new(message);
         toast.set_timeout(4);
+        // A PreferencesDialog is its own top-level window, so a toast added to
+        // the window's overlay ends up dimmed behind it. Dialogs carry their
+        // own overlay for this case.
+        if let Some(dialog) = self.open_dialog.borrow().as_ref() {
+            dialog.add_toast(toast);
+            return;
+        }
         self.toasts.add_toast(toast);
+    }
+
+    /// Forgets the dialog once it closed, so toasts go back to the window.
+    fn clear_open_dialog(&self, dialog: &adw::PreferencesDialog) {
+        let mut open = self.open_dialog.borrow_mut();
+        if open.as_ref().is_some_and(|current| current == dialog) {
+            *open = None;
+        }
     }
 
     fn copy_text(&self, text: &str) {

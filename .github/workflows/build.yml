@@ -82,9 +82,12 @@ jobs:
           make_latest: false
           files: dist/*.tar.gz
 
-      - name: Publish stable release
+      - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
           files: dist/*.tar.gz
+          # Beta tags stay pre-releases so the newest stable tag keeps
+          # serving /releases/latest.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
