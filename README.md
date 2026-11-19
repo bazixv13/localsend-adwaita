@@ -96,6 +96,28 @@ flatpak install flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
 Keep the save location inside Downloads when running as a Flatpak, since only
 `xdg-download` and network access are granted to the sandbox.
 
+### GNOME Files integration
+
+Right-click files or folders in GNOME Files and pick **Send with LocalSend**. The app
+opens with the selection already queued, ready for a device.
+
+```sh
+git clone https://github.com/bazixv13/localsend-adwaita && cd localsend-adwaita \
+  && ./scripts/install-nautilus-extension.sh
+```
+
+The script installs the menu item for your user, plus the desktop entry and icon it
+launches; it needs the Nautilus Python bindings (`nautilus-python` on Fedora,
+`nautilus-python` or `python3-nautilus` on Debian and Ubuntu). It works with both the
+Flatpak and the release-binary install. Remove the menu item again with:
+
+```sh
+rm ~/.local/share/nautilus-python/extensions/localsend_adwaita.py && nautilus -q
+```
+
+The same hand-off works from a terminal: `localsend-adwaita photo.jpg report.pdf` queues
+whatever you pass, and `Open With → LocalSend` does the same from other file managers.
+
 ## Features
 
 - Automatic device discovery over UDP multicast (`224.0.0.167:53317`), with a one-time
@@ -111,6 +133,10 @@ Keep the save location inside Downloads when running as a Flatpak, since only
   About dialog. No telemetry and no traffic beyond the local network.
 - Transfer history with per-file actions (open, copy path, delete from disk), capped at
   100 transfers with cached-copy eviction.
+- “Send with LocalSend” in GNOME Files, and files passed on the command line open as a
+  ready-to-send queue.
+- Device discovery is rebuilt when the computer wakes from sleep or hibernation or when
+  the network changes, so the device stays reachable without a restart.
 
 ## Releases
 

@@ -3,16 +3,25 @@ use crate::window;
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
 use libadwaita as adw;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 pub const APP_ID: &str = "io.github.localsend_adwaita.LocalSend";
 pub const RESOURCE_PATH: &str = "/io/github/localsend_adwaita/LocalSend";
 
+/// Set when the file manager handed files to the app, so "Start in Background"
+/// does not hide the window that was just opened to send them.
+static OPENED_FILES: AtomicBool = AtomicBool::new(false);
+
 pub fn run() -> glib::ExitCode {
     // Both the TLS server and client use the ring provider explicitly.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let app = adw::Application::builder().application_id(APP_ID).build();
+    let app = adw::Application::builder()
+        .application_id(APP_ID)
+        .flags(gio::ApplicationFlags::HANDLES_OPEN)
+        .build();
 
     app.connect_startup(|_| {
         register_resources();
@@ -54,7 +63,7 @@ pub fn run() -> glib::ExitCode {
             let check_core = core.clone();
             let check_window = window.clone();
             glib::timeout_add_seconds_local_once(2, move || {
-                if check_core.tray_active() {
+                if check_core.tray_active() && !OPENED_FILES.load(Ordering::SeqCst) {
                     check_window.set_visible(false);
                     crate::tray::set_window_visible(false);
                 } else {
@@ -64,6 +73,20 @@ pub fn run() -> glib::ExitCode {
         } else {
             window.present();
         }
+    });
+
+    app.connect_open(|app, files, _hint| {
+        // A first launch can deliver "open" before "activate", so make sure
+        // the window exists before handing it the files.
+        if app.active_window().is_none() {
+            app.activate();
+        }
+        OPENED_FILES.store(true, Ordering::SeqCst);
+        if let Some(window) = app.active_window() {
+            window.present();
+        }
+        let paths: Vec<PathBuf> = files.iter().filter_map(|file| file.path()).collect();
+        window::queue_opened_files(paths);
     });
 
     let quit = gio::SimpleAction::new("quit", None);

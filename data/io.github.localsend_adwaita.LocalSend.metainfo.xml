@@ -13,6 +13,7 @@
       <li>Automatic device discovery on the local network</li>
       <li>Send files and folders by picking them or dropping them on the window</li>
       <li>Optional PIN protection and encrypted transfers</li>
+      <li>Send straight from GNOME Files with a “Send with LocalSend” menu item</li>
       <li>Native, adaptive GNOME interface</li>
     </ul>
   </description>
@@ -46,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.3.43-beta" date="2026-11-19" type="development">
+      <description>
+        <p>Rebuild device discovery after the computer wakes from sleep or hibernation, so the device can be found again without restarting the app. Add a “Send with LocalSend” item to GNOME Files and accept files passed on the command line.</p>
+      </description>
+    </release>
     <release version="0.3.42" date="2026-11-15">
       <description>
         <p>Build the Flatpak bundle on a plain runner so releases are produced reliably.</p>
