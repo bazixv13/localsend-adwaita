@@ -41,8 +41,10 @@ jobs:
           # elfutils provides eu-strip, which flatpak-builder uses to split
           # debug info out of every built binary; without it the first module
           # aborts with "Failed to execute child process eu-strip".
+          # librsvg2-common lets appstream decode the scalable app icon.
           sudo apt-get install -y --no-install-recommends \
-            flatpak flatpak-builder ostree rsync ca-certificates elfutils
+            flatpak flatpak-builder ostree rsync ca-certificates elfutils \
+            librsvg2-common
           flatpak --version
           flatpak-builder --version
           # Install the runtime and SDK into the user installation. A system
@@ -53,6 +55,8 @@ jobs:
             https://flathub.org/repo/flathub.flatpakrepo
 
       - name: Build bundle
+        env:
+          G_MESSAGES_DEBUG: all
         run: |
           flatpak-builder --user --force-clean --disable-rofiles-fuse \
             --install-deps-from=flathub \
