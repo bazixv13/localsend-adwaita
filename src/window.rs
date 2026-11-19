@@ -26,6 +26,17 @@ pub fn build(app: &adw::Application, core: Arc<Core>) -> adw::ApplicationWindow 
     ui.spawn_event_loop(receiver);
     ui.refresh_devices();
     ui.show_empty();
+    // Files can arrive before the window exists (D-Bus activation, or "open"
+    // delivered ahead of "activate"), so hand them over now.
+    let pending: Vec<PathBuf> =
+        PENDING_OPENED_FILES.with(|slot| slot.borrow_mut().drain(..).collect());
+    if !pending.is_empty() {
+        // Do not call app.activate() here: this runs inside the activation
+        // handler that is already building the window.
+        ui.window.set_visible(true);
+        ui.window.present();
+        ui.queue_files(pending);
+    }
     ui.window.clone()
 }
 
@@ -206,6 +217,8 @@ struct PendingDecision {
 
 thread_local! {
     static ACTIVE_UI: RefCell<Option<std::rc::Weak<Ui>>> = const { RefCell::new(None) };
+    /// Files handed over before a window existed, queued as soon as it does.
+    static PENDING_OPENED_FILES: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Opens the message a notification announced, presenting the window first.
@@ -223,9 +236,13 @@ pub fn queue_opened_files(paths: Vec<PathBuf>) {
         return;
     }
     let ui = ACTIVE_UI.with(|slot| slot.borrow().as_ref().and_then(std::rc::Weak::upgrade));
-    if let Some(ui) = ui {
-        ui.window.present();
-        ui.queue_files(paths);
+    match ui {
+        Some(ui) => {
+            ui.show_window();
+            ui.queue_files(paths);
+        }
+        // Keep them until the window is built instead of dropping them.
+        None => PENDING_OPENED_FILES.with(|slot| slot.borrow_mut().extend(paths)),
     }
 }
 
@@ -919,6 +936,16 @@ impl Ui {
         self.install_receive_handlers();
         self.refresh_queue();
         self.sync_search_status();
+    }
+
+    /// Brings the window to the front, including when it was closed to the
+    /// tray or never shown, so files opened from the file manager are visible.
+    fn show_window(&self) {
+        self.window.set_visible(true);
+        self.window.present();
+        if let Some(app) = self.window.application() {
+            app.activate();
+        }
     }
 
     fn install_close_handler(self: &Rc<Self>) {
@@ -3471,6 +3498,27 @@ impl Ui {
         background_group.add(&quick_row);
 
         page.add(&background_group);
+
+        let files_group = adw::PreferencesGroup::builder()
+            .title("GNOME Files")
+            .description(
+                "Adds “Send with LocalSend” to the context menu in Files. Needs the optional GNOME Files extension from the project's install script.",
+            )
+            .build();
+        let files_row = adw::SwitchRow::builder()
+            .title("Send with LocalSend")
+            .subtitle("Show the menu item for selected files and folders.")
+            .build();
+        files_row.set_active(config.files_integration);
+        files_row.connect_active_notify({
+            let core = self.core.clone();
+            move |row| {
+                core.update_config(|config| config.files_integration = row.is_active());
+            }
+        });
+        files_group.add(&files_row);
+        page.add(&files_group);
+
         dialog.add(&page);
         dialog.connect_closed(|_| {
             Ui::trim_memory();
