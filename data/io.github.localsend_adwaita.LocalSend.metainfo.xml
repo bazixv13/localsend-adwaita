@@ -47,9 +47,9 @@
   </keywords>
 
   <releases>
-    <release version="0.3.50-beta" date="2026-11-19" type="development">
+    <release version="0.3.50" date="2026-11-19">
       <description>
-        <p>Show a dedicated progress dialog for transfers started from the GNOME Files menu item, with the current file, progress and a cancel button.</p>
+        <p>Show a dedicated progress dialog for transfers started from the GNOME Files menu item, with the current file, progress and a cancel button. Send files handed over by Files to the copy of the app that is already running, and show notifications from the Settings and History dialogs inside those dialogs.</p>
       </description>
     </release>
     <release version="0.3.49-beta" date="2026-11-19" type="development">
