@@ -486,10 +486,11 @@ fn send(
                         }
                         let message = match error {
                             ureq::Error::Status(403, _) => "The transfer was declined".to_string(),
-                            ureq::Error::Status(code, response) => {
-                                net::ApiError::Status(code, response.into_string().unwrap_or_default())
-                                    .to_string()
-                            }
+                            ureq::Error::Status(code, response) => net::ApiError::Status(
+                                code,
+                                response.into_string().unwrap_or_default(),
+                            )
+                            .to_string(),
                             ureq::Error::Transport(error) => error.to_string(),
                         };
                         if let Ok(mut slot) = failed.lock() {
@@ -530,7 +531,6 @@ fn send(
         }
         return;
     }
-
 
     core.emit(Event::SendFinished {
         device: device_key,
@@ -1437,7 +1437,6 @@ mod tests {
         server.join().unwrap();
         let _ = std::fs::remove_dir_all(&directory);
     }
-
 
     /// With uploads running at once, the progress events must still describe
     /// the batch honestly: the byte counter never runs past the total, the

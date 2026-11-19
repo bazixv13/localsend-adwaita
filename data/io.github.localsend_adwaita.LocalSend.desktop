@@ -2,7 +2,7 @@
 Name=LocalSend
 GenericName=File Transfer
 Comment=Share files with nearby devices
-Exec=localsend-adwaita
+Exec=localsend-adwaita %F
 Icon=io.github.localsend_adwaita.LocalSend
 Terminal=false
 Type=Application

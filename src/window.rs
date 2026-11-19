@@ -216,6 +216,19 @@ pub fn flush_pending_text() {
     }
 }
 
+/// Queues files handed over by the file manager, for example GNOME Files'
+/// "Send with LocalSend" menu item or "Open With".
+pub fn queue_opened_files(paths: Vec<PathBuf>) {
+    if paths.is_empty() {
+        return;
+    }
+    let ui = ACTIVE_UI.with(|slot| slot.borrow().as_ref().and_then(std::rc::Weak::upgrade));
+    if let Some(ui) = ui {
+        ui.window.present();
+        ui.queue_files(paths);
+    }
+}
+
 /// Answers an accept/decline request coming from a notification action.
 pub fn resolve_incoming_transfer(accept: bool, session_id: &str) {
     let ui = ACTIVE_UI.with(|slot| slot.borrow().as_ref().and_then(std::rc::Weak::upgrade));

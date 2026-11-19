@@ -13,7 +13,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 const DEVICE_TTL: Duration = Duration::from_secs(20);
 const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(5);
@@ -22,6 +22,12 @@ const PRUNE_INTERVAL: Duration = Duration::from_secs(2);
 // enough that two failed probes remove it within five seconds.
 const PROBE_INTERVAL: Duration = Duration::from_secs(1);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
+/// How often the local addresses are compared, to notice a network change.
+const INTERFACE_CHECK: Duration = Duration::from_secs(2);
+/// A wall-clock jump this much larger than the monotonic clock is a resume.
+const SLEEP_TOLERANCE: Duration = Duration::from_secs(3);
+/// Delay before retrying to reopen the sockets after a failure.
+const REOPEN_RETRY: Duration = Duration::from_secs(2);
 
 pub fn spawn(core: Arc<Core>) {
     let discovery_core = core.clone();
@@ -78,41 +84,153 @@ fn probe_peer(core: &Arc<Core>, key: &str, peer: &DeviceInfo, ip: &str) -> Resul
     Ok(())
 }
 
-fn run(core: Arc<Core>) {
-    let socket = match listen_socket() {
-        Ok(socket) => socket,
+/// The sockets discovery listens and announces on. Both are reopened when the
+/// machine wakes up or the local addresses change: the multicast memberships
+/// and the route picked for the group do not survive a suspend, and a stale
+/// membership means no announcement is ever received, so nobody can find this
+/// device until the app is restarted.
+struct Sockets {
+    listener: Option<UdpSocket>,
+    sender: Option<UdpSocket>,
+}
+
+/// Detects time spent suspended. `Instant` is CLOCK_MONOTONIC on Linux and
+/// stops while the machine sleeps, so wall-clock time moving further than it
+/// did since the previous call means we just woke up.
+struct WakeWatch {
+    wall: SystemTime,
+    steady: Instant,
+}
+
+impl WakeWatch {
+    fn new() -> Self {
+        Self {
+            wall: SystemTime::now(),
+            steady: Instant::now(),
+        }
+    }
+
+    fn woke(&mut self) -> bool {
+        let wall_now = SystemTime::now();
+        let steady_now = Instant::now();
+        let wall = wall_now.duration_since(self.wall).unwrap_or_default();
+        let steady = steady_now.duration_since(self.steady);
+        self.wall = wall_now;
+        self.steady = steady_now;
+        slept(wall, steady)
+    }
+}
+
+fn slept(wall: Duration, steady: Duration) -> bool {
+    wall > steady.saturating_add(SLEEP_TOLERANCE)
+}
+
+/// Builds a discovery socket pair, replacing whatever was there before. The
+/// listener is dropped first, so a membership from the previous network is
+/// never carried over.
+fn reopen(core: &Core, sockets: &mut Sockets) -> bool {
+    sockets.listener = None;
+    let listener = match listen_socket() {
+        Ok(listener) => listener,
         Err(error) => {
             core.emit(Event::ServerError(format!(
                 "Device discovery is unavailable: {error}"
             )));
-            return;
+            return false;
         }
     };
     let sender = match send_socket() {
-        Ok(socket) => socket,
+        Ok(sender) => sender,
         Err(error) => {
             core.emit(Event::ServerError(format!(
                 "Could not open the announcement socket: {error}"
             )));
-            return;
+            return false;
         }
     };
+    sockets.listener = Some(listener);
+    sockets.sender = Some(sender);
+    true
+}
 
-    announce(&core, &sender);
+fn local_addresses() -> Vec<Ipv4Addr> {
+    let mut addresses: Vec<Ipv4Addr> = if_addrs::get_if_addrs()
+        .map(|interfaces| {
+            interfaces
+                .into_iter()
+                .filter(|interface| !interface.is_loopback())
+                .filter_map(|interface| match interface.ip() {
+                    IpAddr::V4(address) => Some(address),
+                    IpAddr::V6(_) => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    addresses.sort();
+    addresses
+}
+
+fn run(core: Arc<Core>) {
+    let mut sockets = Sockets {
+        listener: None,
+        sender: None,
+    };
+    if !reopen(&core, &mut sockets) {
+        return;
+    }
+
+    let mut wake = WakeWatch::new();
+    let mut addresses = local_addresses();
+    let mut last_address_check = Instant::now();
+    let mut retry_at: Option<Instant> = None;
+    let mut announce_now = true;
     let mut last_announce = Instant::now();
     let mut last_prune = Instant::now();
     let mut buffer = vec![0u8; 64 * 1024];
 
     loop {
-        if last_announce.elapsed() >= ANNOUNCE_INTERVAL {
-            announce(&core, &sender);
-            last_announce = Instant::now();
+        let mut rebuild = wake.woke();
+        if last_address_check.elapsed() >= INTERFACE_CHECK {
+            last_address_check = Instant::now();
+            let current = local_addresses();
+            if current != addresses {
+                addresses = current;
+                rebuild = true;
+            }
+        }
+        if let Some(at) = retry_at {
+            if Instant::now() >= at {
+                rebuild = true;
+                retry_at = None;
+            }
+        }
+        if rebuild {
+            if reopen(&core, &mut sockets) {
+                // Peers only learn that this device is back when it
+                // announces, so do not wait for the interval to elapse.
+                announce_now = true;
+            } else {
+                retry_at = Some(Instant::now() + REOPEN_RETRY);
+            }
+        }
+
+        if announce_now || last_announce.elapsed() >= ANNOUNCE_INTERVAL {
+            if let Some(sender) = sockets.sender.as_ref() {
+                announce(&core, sender);
+                announce_now = false;
+                last_announce = Instant::now();
+            }
         }
         if last_prune.elapsed() >= PRUNE_INTERVAL {
             core.remove_stale_devices(DEVICE_TTL);
             last_prune = Instant::now();
         }
-        match socket.recv_from(&mut buffer) {
+
+        let Some(listener) = sockets.listener.as_ref() else {
+            thread::sleep(Duration::from_millis(200));
+            continue;
+        };
+        match listener.recv_from(&mut buffer) {
             Ok((length, source)) => {
                 handle_datagram(&core, &buffer[..length], source);
             }
@@ -314,4 +432,30 @@ pub fn scan(core: Arc<Core>) {
 
         core.scanning.store(false, Ordering::SeqCst);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_ordinary_tick_is_not_a_resume() {
+        assert!(!slept(Duration::from_secs(100), Duration::from_secs(100)));
+    }
+
+    #[test]
+    fn clock_drift_smaller_than_the_tolerance_is_ignored() {
+        assert!(!slept(Duration::from_secs(102), Duration::from_secs(100)));
+    }
+
+    #[test]
+    fn a_wall_clock_jump_while_the_monotonic_clock_stalled_is_a_resume() {
+        // Ten minutes of wall-clock time, a tenth of a second of uptime.
+        assert!(slept(Duration::from_secs(600), Duration::from_millis(100)));
+    }
+
+    #[test]
+    fn the_monotonic_clock_running_ahead_is_not_a_resume() {
+        assert!(!slept(Duration::from_secs(10), Duration::from_secs(600)));
+    }
 }
