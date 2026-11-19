@@ -42,8 +42,12 @@ jobs:
           # every built binary and aborts the first module with "Failed to
           # execute child process eu-strip" when it is missing, which is what
           # kept failing the job before the app was even compiled.
+          # librsvg2-common is the pixbuf loader appstreamcli needs to decode
+          # the scalable app icon; without it composing the metadata fails with
+          # a file-read-error.
           sudo apt-get install -y --no-install-recommends \
-            flatpak flatpak-builder ostree rsync ca-certificates elfutils
+            flatpak flatpak-builder ostree rsync ca-certificates elfutils \
+            librsvg2-common
           flatpak --version
           flatpak-builder --version
           # Install the runtime and SDK into the user installation. A system
