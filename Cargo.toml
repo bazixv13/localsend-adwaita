@@ -4,6 +4,7 @@ version = "0.3.50-beta"
 edition = "2021"
 rust-version = "1.86"
 license = "GPL-3.0-or-later"
+authors = ["LocalSend Adwaita Contributors"]
 description = "LocalSend client for GNOME"
 repository = "https://github.com/bazixv13/localsend-adwaita"
 
