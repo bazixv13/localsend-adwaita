@@ -5,6 +5,7 @@ Python bindings (nautilus-python) and the app's desktop entry.
 """
 
 import glob
+import json
 import os
 import shutil
 
@@ -14,6 +15,13 @@ APP_ID = "io.github.localsend_adwaita.LocalSend"
 ITEM_NAME = "LocalSendAdwaita::send"
 LABEL = "Send with LocalSend"
 
+# The app writes its settings as JSON; the extension runs outside the sandbox,
+# so it can read both a native install's config and a Flatpak one.
+_CONFIG_PATHS = (
+    os.path.expanduser("~/.config/localsend-adwaita/config.json"),
+    os.path.expanduser("~/.var/app/" + APP_ID + "/config/localsend-adwaita/config.json"),
+)
+
 # The introspection typelib is versioned per Nautilus release (4.0, 4.1, ...),
 # so pick whichever one the system actually ships instead of guessing.
 _TYPELIB_DIRS = (
@@ -22,6 +30,31 @@ _TYPELIB_DIRS = (
     "/usr/lib/x86_64-linux-gnu/girepository-1.0",
     "/app/lib/girepository-1.0",
 )
+
+
+def _integration_enabled():
+    """Honours the "Send with LocalSend" switch in the app's settings."""
+    candidates = list(_CONFIG_PATHS)
+    config_home = os.environ.get("XDG_CONFIG_HOME")
+    if config_home:
+        candidates.insert(0, os.path.join(config_home, "localsend-adwaita", "config.json"))
+    # A native and a Flatpak install keep separate configs; use whichever was
+    # written last so the switch follows the app the user actually runs.
+    newest = None
+    for path in candidates:
+        try:
+            modified = os.path.getmtime(path)
+        except OSError:
+            continue
+        if newest is None or modified > newest[0]:
+            newest = (modified, path)
+    if newest is None:
+        return True
+    try:
+        with open(newest[1], encoding="utf-8") as handle:
+            return bool(json.load(handle).get("files_integration", True))
+    except (OSError, ValueError):
+        return True
 
 
 def _typelib_versions():
@@ -80,7 +113,7 @@ class LocalSendMenuProvider(GObject.GObject, Nautilus.MenuProvider):
         # Nautilus 43+ passes the selection only; older versions pass a window
         # first. The selection is always the last argument.
         files = args[-1]
-        if not files:
+        if not files or not _integration_enabled():
             return []
         item = Nautilus.MenuItem(
             name=ITEM_NAME,

@@ -47,6 +47,16 @@
   </keywords>
 
   <releases>
+    <release version="0.3.45-beta" date="2026-11-19" type="development">
+      <description>
+        <p>Add a “Send with LocalSend” switch to Settings so the GNOME Files menu item can be turned off, and keep opening files from the file manager working when the app is not running yet.</p>
+      </description>
+    </release>
+    <release version="0.3.44-beta" date="2026-11-19" type="development">
+      <description>
+        <p>Show and focus the window when files are opened from the file manager, including when the app is already running in the background, and queue those files even if the window has not been built yet.</p>
+      </description>
+    </release>
     <release version="0.3.43-beta" date="2026-11-19" type="development">
       <description>
         <p>Rebuild device discovery after the computer wakes from sleep or hibernation, so the device can be found again without restarting the app. Add a “Send with LocalSend” item to GNOME Files and accept files passed on the command line.</p>

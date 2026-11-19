@@ -76,16 +76,15 @@ pub fn run() -> glib::ExitCode {
     });
 
     app.connect_open(|app, files, _hint| {
+        OPENED_FILES.store(true, Ordering::SeqCst);
+        let paths: Vec<PathBuf> = files.iter().filter_map(|file| file.path()).collect();
         // A first launch can deliver "open" before "activate", so make sure
-        // the window exists before handing it the files.
+        // the window exists before handing it the files. This must happen
+        // inside this call: with no window the application has nothing holding
+        // it and quits as soon as the handler returns.
         if app.active_window().is_none() {
             app.activate();
         }
-        OPENED_FILES.store(true, Ordering::SeqCst);
-        if let Some(window) = app.active_window() {
-            window.present();
-        }
-        let paths: Vec<PathBuf> = files.iter().filter_map(|file| file.path()).collect();
         window::queue_opened_files(paths);
     });
 

@@ -1,6 +1,6 @@
 [package]
 name = "localsend-adwaita"
-version = "0.3.43-beta"
+version = "0.3.45-beta"
 edition = "2021"
 rust-version = "1.86"
 license = "GPL-3.0-or-later"

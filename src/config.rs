@@ -30,6 +30,9 @@ pub struct Config {
     pub history_cache: bool,
     /// Start without showing the window when a tray icon is available.
     pub start_in_background: bool,
+    /// Show "Send with LocalSend" in the GNOME Files context menu. Read by the
+    /// optional Nautilus extension as well as by the app.
+    pub files_integration: bool,
 }
 
 impl Default for Config {
@@ -48,6 +51,7 @@ impl Default for Config {
             quick_save: true,
             history_cache: true,
             start_in_background: false,
+            files_integration: true,
         }
     }
 }
