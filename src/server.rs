@@ -1548,6 +1548,115 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resumes_an_interrupted_upload_from_the_partial() {
+        let directory =
+            std::env::temp_dir().join(format!("localsend-resume-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+
+        let config = Config {
+            alias: "Test Receiver".to_string(),
+            fingerprint: "self-test-fingerprint".to_string(),
+            encryption: false,
+            download_dir: directory.clone(),
+            ..Config::default()
+        };
+        let core = Arc::new(Core::for_test(config));
+        core.set_server(53317, "http");
+        let app = router(core.clone());
+        let peer = SocketAddr::from(([127, 0, 0, 1], 4444));
+        let contents = b"0123456789".to_vec();
+        let sha256 = crate::util::to_hex(&Sha256::digest(&contents));
+
+        let prepare_body = json!({
+            "info": {
+                "alias": "Mock Sender",
+                "version": "2.2",
+                "deviceType": "desktop",
+                "fingerprint": "peer-resume-fingerprint",
+                "port": 4444,
+                "protocol": "http",
+                "download": false
+            },
+            "files": {
+                "f1": {
+                    "id": "f1",
+                    "fileName": "resume.bin",
+                    "size": contents.len(),
+                    "fileType": "application/octet-stream",
+                    "sha256": sha256
+                }
+            }
+        })
+        .to_string();
+
+        let prepare = Request::builder()
+            .method("POST")
+            .uri("/api/localsend/v2/prepare-upload")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo::<SocketAddr>(peer))
+            .body(Body::from(prepare_body.clone()))
+            .unwrap();
+        let response = app.clone().oneshot(prepare).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let prepared: PrepareUploadResponse = serde_json::from_slice(&bytes).unwrap();
+        let token = prepared.files.get("f1").unwrap().clone();
+
+        // Half a file arrives and the connection drops.
+        let first = Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/api/localsend/v2/upload?sessionId={}&fileId=f1&token={}",
+                prepared.session_id, token
+            ))
+            .extension(ConnectInfo::<SocketAddr>(peer))
+            .body(Body::from(contents[..4].to_vec()))
+            .unwrap();
+        let response = app.clone().oneshot(first).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert!(
+            directory.join("resume.bin.part").exists(),
+            "the bytes that did arrive must be kept"
+        );
+
+        // The sender retries: the receiver reports the prefix it already has.
+        let prepare = Request::builder()
+            .method("POST")
+            .uri("/api/localsend/v2/prepare-upload")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo::<SocketAddr>(peer))
+            .body(Body::from(prepare_body))
+            .unwrap();
+        let response = app.clone().oneshot(prepare).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let prepared: PrepareUploadResponse = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(prepared.resume.get("f1"), Some(&4));
+        let token = prepared.files.get("f1").unwrap().clone();
+
+        let rest = Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/api/localsend/v2/upload?sessionId={}&fileId=f1&token={}&offset=4",
+                prepared.session_id, token
+            ))
+            .extension(ConnectInfo::<SocketAddr>(peer))
+            .body(Body::from(contents[4..].to_vec()))
+            .unwrap();
+        let response = app.oneshot(rest).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            std::fs::read(directory.join("resume.bin")).unwrap(),
+            contents
+        );
+
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[tokio::test]
     async fn receives_an_uploaded_file() {
         let directory =
             std::env::temp_dir().join(format!("localsend-receive-test-{}", uuid::Uuid::new_v4()));
