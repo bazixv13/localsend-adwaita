@@ -47,6 +47,12 @@
   </keywords>
 
   <releases>
+    <release version="0.3.52-beta" date="2026-11-21" type="development">
+      <description>
+        <p>Tell the sender that the receiver canceled the transfer instead of leaving it stuck or showing a failure, and report a cancel as canceled on the receiving side as well.</p>
+        <p>Clear the device selection when files arrive from the Files menu, so the first click on a device opens the send question.</p>
+      </description>
+    </release>
     <release version="0.3.51-beta" date="2026-11-20" type="development">
       <description>
         <p>Translate the interface with GNU gettext, including a complete German catalogue and scripts for adding more languages.</p>

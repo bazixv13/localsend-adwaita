@@ -1835,7 +1835,33 @@ impl Ui {
                 self.transfer.borrow_mut().take();
                 self.show_pin_dialog(device, Vec::new(), Some(text));
             }
-            Event::SendCanceled => {}
+            Event::SendCanceled { device } => {
+                if self.transfer.borrow().is_none() {
+                    return;
+                }
+                self.transfer.borrow_mut().take();
+                let alias = self
+                    .core
+                    .device(&device)
+                    .map(|(info, _)| info.alias)
+                    .unwrap_or_else(|| "The device".to_string());
+                let description = crate::i18n::fmt("{} canceled the transfer", &[&alias]);
+                self.show_result(
+                    "dialog-warning-symbolic",
+                    &t("Transfer canceled"),
+                    &description,
+                    "Back",
+                    ResultAction::Back,
+                );
+                self.finish_progress_dialog(
+                    "dialog-warning-symbolic",
+                    &t("Transfer canceled"),
+                    &description,
+                );
+                self.toast(&description);
+                self.queued_texts.borrow_mut().clear();
+                self.queue_device.borrow_mut().take();
+            }
             Event::TrayShow => self.window.present(),
             Event::TrayHide => self.window.set_visible(false),
             Event::TrayQuit => {
@@ -1941,6 +1967,9 @@ impl Ui {
         let Some((info, _)) = self.core.device(key) else {
             return;
         };
+        // Files handed over by the file manager arrive while its window is in
+        // front; raise ours so the question is visible when it opens.
+        self.show_window();
         let (files, texts) = self.queue_summary();
         let mut parts = Vec::new();
         if files > 0 {
@@ -2014,6 +2043,10 @@ impl Ui {
         let count = paths.len();
         self.queue.borrow_mut().push(QueueItem::files(paths));
         self.refresh_queue();
+        // A selected row swallows the next click (ListBox only reports a
+        // change), so clear it and let the first click pick a device.
+        self.device_list.unselect_all();
+        self.selected.borrow_mut().take();
         self.show_empty();
         self.toast(&crate::i18n::np(
             count as u64,
@@ -2026,6 +2059,8 @@ impl Ui {
     fn queue_text(self: &Rc<Self>, text: String) {
         self.queue.borrow_mut().push(QueueItem::text(text));
         self.refresh_queue();
+        self.device_list.unselect_all();
+        self.selected.borrow_mut().take();
         self.show_empty();
         self.toast("Message queued. Pick a device to send.");
     }
