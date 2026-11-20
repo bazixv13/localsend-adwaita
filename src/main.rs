@@ -3,6 +3,7 @@ mod config;
 mod core;
 mod discovery;
 mod history;
+mod i18n;
 mod nautilus;
 mod net;
 mod protocol;

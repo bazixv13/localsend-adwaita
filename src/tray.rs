@@ -6,6 +6,7 @@
 //! its own thread.
 
 use crate::core::{Core, Event};
+use crate::i18n::t;
 use ksni::menu::StandardItem;
 use ksni::{Handle, MenuItem, Tray, TrayMethods};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -55,9 +56,9 @@ impl Tray for LocalSendTray {
         vec![
             StandardItem {
                 label: if visible {
-                    "Hide LocalSend".to_string()
+                    t("Hide LocalSend")
                 } else {
-                    "Show LocalSend".to_string()
+                    t("Show LocalSend")
                 },
                 activate: Box::new(|tray: &mut Self| {
                     if WINDOW_VISIBLE.load(Ordering::SeqCst) {
@@ -71,7 +72,7 @@ impl Tray for LocalSendTray {
             .into(),
             MenuItem::Separator,
             StandardItem {
-                label: "Quit".to_string(),
+                label: t("Quit"),
                 activate: Box::new(|tray: &mut Self| {
                     tray.core.emit(Event::TrayQuit);
                     // The receiver and discovery threads keep the process
@@ -101,6 +102,32 @@ pub fn set_window_visible(visible: bool) {
             handle.update(|_| {}).await;
         });
     }
+}
+
+/// Shows or hides the tray icon while the app runs, so the preference needs
+/// no restart.
+pub fn set_enabled(core: &Arc<Core>, enabled: bool) {
+    if enabled {
+        if !core.tray_active() {
+            if let Err(error) = spawn(core.clone()) {
+                eprintln!("Tray icon unavailable: {error}");
+            }
+        }
+    } else {
+        hide(core);
+    }
+}
+
+fn hide(core: &Core) {
+    let handle = handle_slot().lock().ok().and_then(|mut slot| slot.take());
+    if let Some(handle) = handle {
+        if let Some(runtime) = runtime_slot().lock().ok().and_then(|slot| slot.clone()) {
+            runtime.spawn(async move {
+                let _ = handle.shutdown().await;
+            });
+        }
+    }
+    core.set_tray_active(false);
 }
 
 /// Starts the tray icon on its own runtime thread. `tray_active` is only set

@@ -9,7 +9,7 @@ use crate::core::{Core, Event, IncomingFileInfo, IncomingRequest, ReceiveFile, R
 use crate::history::{self, HistoryEntry, HistoryItem};
 use crate::protocol::{DeviceInfo, PrepareUploadRequest, PrepareUploadResponse, DEFAULT_PORT};
 use axum::body::Body;
-use axum::extract::{ConnectInfo, Query, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -18,53 +18,48 @@ use futures_util::StreamExt;
 use hyper_util::rt::TokioIo;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::ffi::CString;
 use std::io::Read as _;
 use std::net::SocketAddr;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
 const MAX_TEXT_BYTES: u64 = 8 * 1024 * 1024;
+/// JSON bodies are buffered in memory, so they need a ceiling. Uploads stream
+/// and are not buffered, so the limit never applies to file data.
+const MAX_JSON_BYTES: usize = MAX_TEXT_BYTES as usize + 1024 * 1024;
+/// Kept free on the download drive so a receive never fills it completely.
+const DISK_RESERVE: u64 = 16 * 1024 * 1024;
+/// How long an unfinished upload is kept, so a retry can pick it up again.
+const PARTIAL_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+/// Expired partials are swept at most this often, so the check stays cheap.
+const PARTIAL_SWEEP_INTERVAL: Duration = Duration::from_secs(60 * 60);
+static LAST_PARTIAL_SWEEP: OnceLock<Mutex<Instant>> = OnceLock::new();
 /// A transfer with no bytes moving for this long is treated as abandoned.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Signals the running receiver to re-read its settings.
+static CONTROL: OnceLock<tokio::sync::mpsc::UnboundedSender<()>> = OnceLock::new();
+
 pub fn start(core: Arc<Core>) -> Result<(), String> {
-    let config = core.config();
-    let listener = bind(config.port)?;
+    let listener = bind(core.config().port)?;
     let port = listener
         .local_addr()
         .map_err(|e| format!("Could not inspect the listening socket: {e}"))?
         .port();
+    let tls_config = tls_config_for(&core);
+    core.set_server(port, protocol_name(&tls_config));
 
-    let mut tls_config = None;
-    if config.encryption {
-        match core.identity() {
-            Some(identity) => match crate::tls::server_config(&identity) {
-                Ok(server_config) => tls_config = Some(Arc::new(server_config)),
-                Err(error) => {
-                    eprintln!("{error}");
-                    core.emit(Event::Toast(
-                        "Encryption is unavailable; falling back to unencrypted transfers".into(),
-                    ));
-                }
-            },
-            None => {
-                core.emit(Event::Toast(
-                    "Encryption is unavailable; falling back to unencrypted transfers".into(),
-                ));
-            }
-        }
-    }
-
-    let protocol = if tls_config.is_some() {
-        "https"
-    } else {
-        "http"
-    };
-    core.set_server(port, protocol);
+    // Settings can reopen the listening socket while the app runs. The
+    // receiver owns the socket, so the request travels through this channel
+    // instead of the UI trying to rebind behind its back.
+    let (control, control_rx) = tokio::sync::mpsc::unbounded_channel();
+    let _ = CONTROL.set(control);
 
     std::thread::Builder::new()
         .name("localsend-http".to_string())
@@ -86,7 +81,9 @@ pub fn start(core: Arc<Core>) -> Result<(), String> {
                     return;
                 }
             };
-            if let Err(error) = runtime.block_on(serve(core.clone(), listener, tls_config)) {
+            if let Err(error) =
+                runtime.block_on(serve(core.clone(), listener, tls_config, control_rx))
+            {
                 core.emit(Event::ServerError(format!(
                     "Receiving is unavailable: {error}"
                 )));
@@ -95,6 +92,47 @@ pub fn start(core: Arc<Core>) -> Result<(), String> {
         .map_err(|e| format!("Could not start the receiver thread: {e}"))?;
 
     Ok(())
+}
+
+/// Re-reads the port and encryption settings and applies them to the running
+/// receiver, so no settings change needs an app restart.
+pub fn reconfigure() {
+    if let Some(control) = CONTROL.get() {
+        let _ = control.send(());
+    }
+}
+
+fn protocol_name(tls: &Option<Arc<rustls::ServerConfig>>) -> &'static str {
+    if tls.is_some() {
+        "https"
+    } else {
+        "http"
+    }
+}
+
+fn tls_config_for(core: &Core) -> Option<Arc<rustls::ServerConfig>> {
+    if !core.config().encryption {
+        return None;
+    }
+    let fallback = || {
+        core.emit(Event::Toast(crate::i18n::t(
+            "Encryption is unavailable; falling back to unencrypted transfers",
+        )));
+    };
+    match core.identity() {
+        Some(identity) => match crate::tls::server_config(&identity) {
+            Ok(server_config) => Some(Arc::new(server_config)),
+            Err(error) => {
+                eprintln!("{error}");
+                fallback();
+                None
+            }
+        },
+        None => {
+            fallback();
+            None
+        }
+    }
 }
 
 fn bind(preferred_port: u16) -> Result<std::net::TcpListener, String> {
@@ -116,10 +154,16 @@ fn bind(preferred_port: u16) -> Result<std::net::TcpListener, String> {
 async fn serve(
     core: Arc<Core>,
     listener: std::net::TcpListener,
-    tls_config: Option<Arc<rustls::ServerConfig>>,
+    initial_tls: Option<Arc<rustls::ServerConfig>>,
+    mut control: tokio::sync::mpsc::UnboundedReceiver<()>,
 ) -> Result<(), String> {
-    let listener = TcpListener::from_std(listener)
+    let mut listener = TcpListener::from_std(listener)
         .map_err(|e| format!("Could not use the listening socket: {e}"))?;
+    let mut port = listener
+        .local_addr()
+        .map_err(|e| format!("Could not inspect the listening socket: {e}"))?
+        .port();
+    let mut tls_config = initial_tls;
     let app = router(core.clone());
 
     // A sender that vanishes mid-transfer leaves a session with no bytes
@@ -141,14 +185,47 @@ async fn serve(
     }
 
     loop {
-        let (stream, peer) = match listener.accept().await {
-            Ok(connection) => connection,
-            Err(error) => {
-                eprintln!("Accept failed: {error}");
-                tokio::time::sleep(Duration::from_millis(200)).await;
+        let connection = tokio::select! {
+            signal = control.recv() => {
+                if signal.is_none() {
+                    return Ok(());
+                }
+                let requested = core.config().port;
+                if requested != port {
+                    match bind(requested).and_then(|bound| {
+                        TcpListener::from_std(bound)
+                            .map_err(|error| format!("Could not use the new port: {error}"))
+                    }) {
+                        Ok(bound) => {
+                            listener = bound;
+                            port = listener
+                                .local_addr()
+                                .map(|address| address.port())
+                                .unwrap_or(requested);
+                        }
+                        Err(error) => core.emit(Event::Toast(crate::i18n::fmt(
+                            "Could not change the receiving port: {}",
+                            &[&error],
+                        ))),
+                    }
+                }
+                tls_config = tls_config_for(&core);
+                core.set_server(port, protocol_name(&tls_config));
+                // Peers remember the old port and protocol, so tell them about
+                // the new details instead of waiting for the next interval.
+                core.request_announce();
                 continue;
             }
+            accepted = listener.accept() => match accepted {
+                Ok(connection) => connection,
+                Err(error) => {
+                    eprintln!("Accept failed: {error}");
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    continue;
+                }
+            },
         };
+        let (stream, peer) = connection;
         let app = app.clone();
         let tls = tls_config.clone();
         tokio::spawn(async move {
@@ -207,6 +284,9 @@ fn router(core: Arc<Core>) -> Router {
         .route("/api/localsend/v2/prepare-upload", post(prepare_upload))
         .route("/api/localsend/v2/upload", post(upload))
         .route("/api/localsend/v2/cancel", post(cancel))
+        // Buffered bodies are parsed into memory before the handlers see them.
+        // The upload route streams its body, so file data is unaffected.
+        .layer(DefaultBodyLimit::max(MAX_JSON_BYTES))
         .with_state(core)
 }
 
@@ -432,6 +512,13 @@ async fn prepare_upload(
         }
     };
 
+    // Clear out partials from transfers that were abandoned more than a day
+    // ago. Recent ones stay, so a retry can reuse them.
+    if !all_messages {
+        let root = directory.clone();
+        let _ = tokio::task::spawn_blocking(move || sweep_partials(&root)).await;
+    }
+
     // Files whose announced checksum matches a file already in the download
     // folder are accepted without a token: the sender uploads only the rest.
     let mut skipped: HashMap<String, PathBuf> = HashMap::new();
@@ -460,6 +547,30 @@ async fn prepare_upload(
             .await
             .unwrap_or_default();
             skipped.extend(found);
+        }
+    }
+
+    // Refuse a transfer that cannot fit instead of filling the drive and
+    // failing half-way, which looks like a corrupt transfer to the sender.
+    let needed: u64 = files
+        .iter()
+        .filter(|file| !crate::protocol::is_text_file(&file.file_type))
+        .filter(|file| !skipped.contains_key(&file.id))
+        .map(|file| file.size)
+        .sum();
+    if needed > 0 {
+        if let Some(free) = available_space(&directory) {
+            if needed.saturating_add(DISK_RESERVE) > free {
+                core.emit(Event::Toast(crate::i18n::fmt(
+                    "Not enough free space: {} needed, {} available",
+                    &[
+                        &crate::util::human_bytes(needed),
+                        &crate::util::human_bytes(free),
+                    ],
+                )));
+                core.end_prepare();
+                return StatusCode::INSUFFICIENT_STORAGE.into_response();
+            }
         }
     }
 
@@ -598,7 +709,11 @@ fn existing_file_matches(path: &Path, size: u64, sha256: &str) -> bool {
 }
 
 struct TargetFile {
+    /// Where the file appears once it is complete.
     path: PathBuf,
+    /// Where the bytes are written meanwhile, so an interrupted transfer never
+    /// leaves a truncated file with the real name.
+    temp: PathBuf,
     file: std::fs::File,
 }
 
@@ -659,15 +774,15 @@ async fn upload(
 
     while let Some(chunk) = stream.next().await {
         if session.canceled.load(Ordering::SeqCst) {
+            // The partial stays for the grace period: the sender can retry the
+            // same name without the folder filling up with copies.
             drop(output);
-            let _ = tokio::fs::remove_file(&target.path).await;
             return StatusCode::CONFLICT.into_response();
         }
         let chunk = match chunk {
             Ok(chunk) => chunk,
             Err(_) => {
                 drop(output);
-                let _ = tokio::fs::remove_file(&target.path).await;
                 fail_session(&core, &session, "The upload was interrupted");
                 return StatusCode::BAD_REQUEST.into_response();
             }
@@ -675,7 +790,6 @@ async fn upload(
         if let Err(error) = output.write_all(&chunk).await {
             eprintln!("Write failed for {}: {error}", target.path.display());
             drop(output);
-            let _ = tokio::fs::remove_file(&target.path).await;
             fail_session(&core, &session, "The file could not be written to disk");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
@@ -703,15 +817,14 @@ async fn upload(
     if let Err(error) = output.flush().await {
         eprintln!("Flush failed for {}: {error}", target.path.display());
         drop(output);
-        let _ = tokio::fs::remove_file(&target.path).await;
         fail_session(&core, &session, "The file could not be written to disk");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     drop(output);
 
     if received < file.size {
-        // A truncated upload is not a completed file.
-        let _ = tokio::fs::remove_file(&target.path).await;
+        // A truncated upload is not a completed file, but its bytes are kept
+        // for the grace period so a retry is not starting from nothing.
         fail_session(&core, &session, "The upload was incomplete");
         return StatusCode::BAD_REQUEST.into_response();
     }
@@ -719,7 +832,7 @@ async fn upload(
     if let Some(expected) = file.sha256.as_deref() {
         let actual = crate::util::to_hex(&hasher.finalize());
         if !expected.eq_ignore_ascii_case(&actual) {
-            let _ = tokio::fs::remove_file(&target.path).await;
+            let _ = tokio::fs::remove_file(&target.temp).await;
             fail_session(
                 &core,
                 &session,
@@ -729,6 +842,13 @@ async fn upload(
         }
     }
 
+    // The upload is complete and verified, so publish it under its real name.
+    if let Err(error) = tokio::fs::rename(&target.temp, &target.path).await {
+        eprintln!("Could not finish {}: {error}", target.path.display());
+        let _ = tokio::fs::remove_file(&target.temp).await;
+        fail_session(&core, &session, "The file could not be saved");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
     apply_file_times(&file, Some(target.path.clone()));
     complete_file(&core, &session, &file, received);
     StatusCode::OK.into_response()
@@ -770,7 +890,7 @@ fn complete_file(
         if let Some(path) = path {
             let cache = if core.config().history_cache && !file.existing {
                 let cache_root = core.history_cache_root();
-                let index = session.files_done.load(Ordering::SeqCst) as usize;
+                let index = session.files_done.load(Ordering::SeqCst);
                 history::cache_file_copy(&path, &session.id, index, &file.name, &cache_root)
             } else {
                 None
@@ -973,18 +1093,29 @@ fn create_target(directory: &Path, relative: &Path) -> std::io::Result<TargetFil
         } else {
             directory.join(suffixed(relative, attempt))
         };
+        if candidate.exists() {
+            continue;
+        }
+        let temp = partial_path(&candidate);
+        // A partial from a recent transfer is reused, so an interrupted send
+        // does not leave more and more numbered files behind. Only a partial
+        // that is past its grace period is thrown away.
+        if temp.exists() && partial_expired(&temp) {
+            let _ = std::fs::remove_file(&temp);
+        }
         match std::fs::OpenOptions::new()
             .write(true)
-            .create_new(true)
-            .open(&candidate)
+            .create(true)
+            .truncate(true)
+            .open(&temp)
         {
             Ok(file) => {
                 return Ok(TargetFile {
                     path: candidate,
+                    temp,
                     file,
                 })
             }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
         }
     }
@@ -992,6 +1123,82 @@ fn create_target(directory: &Path, relative: &Path) -> std::io::Result<TargetFil
         std::io::ErrorKind::AlreadyExists,
         "could not find a free file name",
     ))
+}
+
+/// Whether an unfinished upload is past its grace period.
+fn partial_expired(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_none_or(|age| age >= PARTIAL_TTL)
+}
+
+/// Removes partials older than the grace period, at most once an hour.
+fn sweep_partials(directory: &Path) {
+    let now = Instant::now();
+    let last = LAST_PARTIAL_SWEEP.get_or_init(|| Mutex::new(now - PARTIAL_SWEEP_INTERVAL));
+    {
+        let Ok(mut last) = last.lock() else {
+            return;
+        };
+        if now.duration_since(*last) < PARTIAL_SWEEP_INTERVAL {
+            return;
+        }
+        *last = now;
+    }
+    remove_expired_partials(directory, 0);
+}
+
+fn remove_expired_partials(directory: &Path, depth: usize) {
+    // Download folders can contain relative paths a few levels deep; the cap
+    // keeps a pathological tree from making the sweep unbounded.
+    if depth > 8 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        let path = entry.path();
+        if kind.is_dir() {
+            remove_expired_partials(&path, depth + 1);
+        } else if kind.is_file()
+            && path
+                .extension()
+                .is_some_and(|extension| extension == "part")
+            && partial_expired(&path)
+        {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+fn partial_path(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(".part");
+    PathBuf::from(name)
+}
+
+/// Free bytes on the filesystem holding `path`, so a transfer that cannot fit
+/// is refused before any data is written.
+fn available_space(path: &Path) -> Option<u64> {
+    let path = CString::new(path.as_os_str().as_bytes()).ok()?;
+    // SAFETY: statvfs only writes into the struct that is handed to it, and
+    // `path` is a valid NUL-terminated string for the duration of the call.
+    let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(path.as_ptr(), &mut stats) } != 0 {
+        return None;
+    }
+    let block_size = if stats.f_frsize != 0 {
+        stats.f_frsize
+    } else {
+        stats.f_bsize
+    };
+    Some(stats.f_bavail.saturating_mul(block_size))
 }
 
 fn suffixed(relative: &Path, attempt: u32) -> PathBuf {
@@ -1027,6 +1234,68 @@ mod tests {
     use tower::ServiceExt;
 
     #[test]
+    fn partial_files_are_written_next_to_the_real_name() {
+        assert_eq!(
+            partial_path(Path::new("/tmp/report.pdf")),
+            PathBuf::from("/tmp/report.pdf.part")
+        );
+    }
+
+    #[test]
+    fn a_retry_reuses_the_partial_of_an_interrupted_transfer() {
+        let directory =
+            std::env::temp_dir().join(format!("localsend-retry-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let relative = Path::new("clip.mp4");
+
+        let first = create_target(&directory, relative).unwrap();
+        drop(first.file);
+        assert!(first.temp.exists());
+
+        let second = create_target(&directory, relative).unwrap();
+        assert_eq!(second.path, first.path);
+        assert_eq!(second.temp, first.temp);
+
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn the_sweep_only_removes_partials_past_their_grace_period() {
+        let directory =
+            std::env::temp_dir().join(format!("localsend-sweep-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let recent = directory.join("recent.bin.part");
+        let expired = directory.join("expired.bin.part");
+        let complete = directory.join("complete.bin");
+        std::fs::write(&recent, b"partial").unwrap();
+        std::fs::write(&expired, b"partial").unwrap();
+        std::fs::write(&complete, b"done").unwrap();
+
+        let old = std::time::SystemTime::now() - PARTIAL_TTL - Duration::from_secs(60);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&expired)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+
+        remove_expired_partials(&directory, 0);
+
+        assert!(recent.exists(), "a fresh partial must survive the sweep");
+        assert!(!expired.exists(), "a day-old partial must be removed");
+        assert!(complete.exists(), "completed files are never swept");
+
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn reads_the_free_space_of_a_real_directory() {
+        let free = available_space(&std::env::temp_dir()).expect("statvfs failed");
+        assert!(free > 0, "a temp directory should have some space");
+        assert!(available_space(Path::new("/this/path/does/not/exist")).is_none());
+    }
+
+    #[test]
     fn matches_existing_files_by_size_and_checksum() {
         let directory =
             std::env::temp_dir().join(format!("localsend-skip-test-{}", uuid::Uuid::new_v4()));
@@ -1051,13 +1320,14 @@ mod tests {
         let existing = b"already here".to_vec();
         std::fs::write(directory.join("song.m4a"), &existing).unwrap();
 
-        let mut config = Config::default();
-        config.alias = "Test Receiver".to_string();
-        config.fingerprint = "self-test-fingerprint".to_string();
-        config.encryption = false;
-        config.pin.clear();
-        config.quick_save = true;
-        config.download_dir = directory.clone();
+        let config = Config {
+            alias: "Test Receiver".to_string(),
+            fingerprint: "self-test-fingerprint".to_string(),
+            encryption: false,
+            quick_save: true,
+            download_dir: directory.clone(),
+            ..Config::default()
+        };
         let core = Arc::new(Core::for_test(config));
         core.set_server(53317, "http");
 
@@ -1126,12 +1396,13 @@ mod tests {
             std::env::temp_dir().join(format!("localsend-receive-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&directory).unwrap();
 
-        let mut config = Config::default();
-        config.alias = "Test Receiver".to_string();
-        config.fingerprint = "self-test-fingerprint".to_string();
-        config.encryption = false;
-        config.pin.clear();
-        config.download_dir = directory.clone();
+        let config = Config {
+            alias: "Test Receiver".to_string(),
+            fingerprint: "self-test-fingerprint".to_string(),
+            encryption: false,
+            download_dir: directory.clone(),
+            ..Config::default()
+        };
         let core = Arc::new(Core::for_test(config));
         core.set_server(53317, "http");
 
@@ -1211,6 +1482,10 @@ mod tests {
 
         let saved = std::fs::read(directory.join("received.txt")).unwrap();
         assert_eq!(saved, contents);
+        assert!(
+            !directory.join("received.txt.part").exists(),
+            "a completed upload must not leave its partial behind"
+        );
 
         tokio::time::timeout(Duration::from_secs(5), finished_rx.recv())
             .await
@@ -1221,12 +1496,13 @@ mod tests {
     }
 
     fn text_test_core(directory: &Path) -> Arc<Core> {
-        let mut config = Config::default();
-        config.alias = "Test Receiver".to_string();
-        config.fingerprint = "self-test-fingerprint".to_string();
-        config.encryption = false;
-        config.pin.clear();
-        config.download_dir = directory.to_path_buf();
+        let config = Config {
+            alias: "Test Receiver".to_string(),
+            fingerprint: "self-test-fingerprint".to_string(),
+            encryption: false,
+            download_dir: directory.to_path_buf(),
+            ..Config::default()
+        };
         let core = Arc::new(Core::for_test(config));
         core.set_server(53317, "http");
         let _ = std::fs::remove_dir_all(directory);

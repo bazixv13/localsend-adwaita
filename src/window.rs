@@ -1,6 +1,7 @@
 use crate::application::APP_ID;
 use crate::core::{Core, Event, IncomingFileInfo, IncomingRequest};
 use crate::history::{HistoryEntry, HistoryItem, Resolution};
+use crate::i18n::t;
 use crate::nautilus;
 use crate::sender;
 use crate::util;
@@ -320,7 +321,7 @@ impl Ui {
         let home_icon = gtk::Image::from_icon_name("send-to-symbolic");
         home_icon.set_pixel_size(88);
         home_icon.add_css_class("dim-label");
-        let home_title = gtk::Label::new(Some("Send Files"));
+        let home_title = gtk::Label::new(Some(t("Send Files").as_str()));
         home_title.add_css_class("title-1");
         let home_description = gtk::Label::new(Some(
             "Drop files or folders here, or add them below. Nothing is sent until you pick a nearby device and confirm.",
@@ -331,18 +332,18 @@ impl Ui {
         home_description.set_max_width_chars(42);
 
         let add_files_button = gtk::Button::builder()
-            .label("Add Files…")
+            .label(t("Add Files…"))
             .icon_name("document-send-symbolic")
             .build();
         add_files_button.add_css_class("pill");
         add_files_button.add_css_class("suggested-action");
         let add_folder_button = gtk::Button::builder()
-            .label("Add Folder…")
+            .label(t("Add Folder…"))
             .icon_name("folder-symbolic")
             .build();
         add_folder_button.add_css_class("pill");
         let queue_text_button = gtk::Button::builder()
-            .label("Add Text…")
+            .label(t("Add Text…"))
             .icon_name("chat-message-new-symbolic")
             .build();
         queue_text_button.add_css_class("pill");
@@ -360,12 +361,13 @@ impl Ui {
         let home_drop_icon = gtk::Image::from_icon_name("document-open-symbolic");
         home_drop_icon.set_pixel_size(28);
         home_drop_icon.add_css_class("dim-label");
-        let home_drop_label = gtk::Label::new(Some("Drop files or folders to queue them"));
+        let home_drop_label =
+            gtk::Label::new(Some(t("Drop files or folders to queue them").as_str()));
         home_drop_label.add_css_class("dim-label");
         home_drop.append(&home_drop_icon);
         home_drop.append(&home_drop_label);
 
-        let queue_heading = gtk::Label::new(Some("Queue"));
+        let queue_heading = gtk::Label::new(Some(t("Queue").as_str()));
         queue_heading.add_css_class("heading");
         queue_heading.set_halign(gtk::Align::Start);
         let queue_list = gtk::ListBox::new();
@@ -402,7 +404,7 @@ impl Ui {
             .build();
 
         // Sidebar
-        let sidebar_heading = gtk::Label::new(Some("Nearby Devices"));
+        let sidebar_heading = gtk::Label::new(Some(t("Nearby Devices").as_str()));
         sidebar_heading.add_css_class("heading");
         sidebar_heading.set_halign(gtk::Align::Start);
         sidebar_heading.set_margin_top(18);
@@ -434,7 +436,7 @@ impl Ui {
         let empty_icon = gtk::Image::from_icon_name("network-wireless-offline-symbolic");
         empty_icon.set_pixel_size(48);
         empty_icon.add_css_class("dim-label");
-        let empty_title = gtk::Label::new(Some("No Devices Found"));
+        let empty_title = gtk::Label::new(Some(t("No Devices Found").as_str()));
         empty_title.add_css_class("title-4");
         let empty_description = gtk::Label::new(Some(
             "Make sure LocalSend is open on another device on this network. Devices appear automatically.",
@@ -458,7 +460,7 @@ impl Ui {
         let search_spinner = gtk::Spinner::new();
         search_spinner.set_size_request(16, 16);
         search_spinner.set_valign(gtk::Align::Center);
-        let search_label = gtk::Label::new(Some("Searching for devices…"));
+        let search_label = gtk::Label::new(Some(t("Searching for devices…").as_str()));
         search_label.add_css_class("caption");
         search_label.add_css_class("dim-label");
         let search_status = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -486,7 +488,7 @@ impl Ui {
         device_meta.set_justify(gtk::Justification::Center);
 
         let send_button = gtk::Button::builder()
-            .label("Send Files…")
+            .label(t("Send Files…"))
             .icon_name("document-send-symbolic")
             .halign(gtk::Align::Center)
             .build();
@@ -494,13 +496,13 @@ impl Ui {
         send_button.add_css_class("pill");
 
         let send_folder_button = gtk::Button::builder()
-            .label("Send Folder…")
+            .label(t("Send Folder…"))
             .icon_name("folder-symbolic")
             .halign(gtk::Align::Center)
             .build();
         send_folder_button.add_css_class("pill");
         let send_text_button = gtk::Button::builder()
-            .label("Send Text…")
+            .label(t("Send Text…"))
             .icon_name("chat-message-new-symbolic")
             .halign(gtk::Align::Center)
             .build();
@@ -519,7 +521,7 @@ impl Ui {
         let drop_icon = gtk::Image::from_icon_name("document-open-symbolic");
         drop_icon.set_pixel_size(28);
         drop_icon.add_css_class("dim-label");
-        let drop_label = gtk::Label::new(Some("or drop files and folders here"));
+        let drop_label = gtk::Label::new(Some(t("or drop files and folders here").as_str()));
         drop_label.add_css_class("dim-label");
         drop_zone.append(&drop_icon);
         drop_zone.append(&drop_label);
@@ -551,7 +553,7 @@ impl Ui {
         transfer_file.add_css_class("pill");
         transfer_file.add_css_class("flat");
         transfer_file.set_halign(gtk::Align::Center);
-        transfer_file.set_tooltip_text(Some("Show file names"));
+        transfer_file.set_tooltip_text(Some(t("Show file names").as_str()));
         let transfer_progress = gtk::ProgressBar::new();
         transfer_progress.add_css_class("transfer-progress");
         transfer_progress.set_show_text(false);
@@ -561,7 +563,7 @@ impl Ui {
         transfer_detail.add_css_class("caption");
         transfer_detail.add_css_class("dim-label");
         transfer_detail.set_halign(gtk::Align::Center);
-        let transfer_cancel = gtk::Button::with_label("Cancel");
+        let transfer_cancel = gtk::Button::with_label(&t("Cancel"));
         transfer_cancel.add_css_class("pill");
         transfer_cancel.add_css_class("destructive-action");
         transfer_cancel.set_halign(gtk::Align::Center);
@@ -587,7 +589,7 @@ impl Ui {
         // Result
         let result_page = adw::StatusPage::builder()
             .icon_name("emblem-ok-symbolic")
-            .title("Files Sent")
+            .title(t("Files Sent"))
             .build();
         let result_primary = gtk::Button::with_label("Send More");
         result_primary.add_css_class("suggested-action");
@@ -733,7 +735,7 @@ impl Ui {
         indicator_bar.set_show_text(false);
         let indicator_show = gtk::Button::with_label("Show Transfer");
         indicator_show.add_css_class("flat");
-        let indicator_cancel = gtk::Button::with_label("Cancel");
+        let indicator_cancel = gtk::Button::with_label(&t("Cancel"));
         indicator_cancel.add_css_class("pill");
         indicator_cancel.add_css_class("destructive-action");
         let indicator_buttons = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -756,10 +758,10 @@ impl Ui {
         transfer_indicator.set_child(Some(&indicator_ring));
         transfer_indicator.set_popover(Some(&indicator_popover));
         transfer_indicator.add_css_class("flat");
-        transfer_indicator.set_tooltip_text(Some("Transfer progress"));
+        transfer_indicator.set_tooltip_text(Some(t("Transfer progress").as_str()));
         transfer_indicator.set_visible(false);
 
-        let window_title = adw::WindowTitle::new("LocalSend", "Nearby Devices");
+        let window_title = adw::WindowTitle::new("LocalSend", &t("Nearby Devices"));
         let header = adw::HeaderBar::new();
         header.pack_start(&sidebar_toggle);
         header.set_title_widget(Some(&window_title));
@@ -1123,7 +1125,7 @@ impl Ui {
         step.add_css_class("title-3");
         step.set_wrap(true);
         step.set_justify(gtk::Justification::Center);
-        let file = gtk::Label::new(Some("Preparing files…"));
+        let file = gtk::Label::new(Some(t("Preparing files…").as_str()));
         file.add_css_class("caption");
         file.add_css_class("dim-label");
         file.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
@@ -1137,7 +1139,7 @@ impl Ui {
         )));
         detail.add_css_class("caption");
         detail.add_css_class("dim-label");
-        let cancel = gtk::Button::with_label("Cancel");
+        let cancel = gtk::Button::with_label(&t("Cancel"));
         cancel.add_css_class("pill");
         cancel.add_css_class("destructive-action");
         cancel.set_halign(gtk::Align::Center);
@@ -1243,17 +1245,19 @@ impl Ui {
         };
         view.bar.set_fraction(fraction);
         let label = if files_total > 1 {
-            format!("{files_total} files")
+            crate::i18n::fmt("{} files", &[&files_total])
         } else {
             file_name.to_string()
         };
         view.file.set_label(&label);
-        view.detail.set_label(&format!(
+        view.detail.set_label(&crate::i18n::fmt(
             "{} of {} · {} of {} files",
-            util::human_bytes(done),
-            util::human_bytes(total),
-            files_done,
-            files_total
+            &[
+                &util::human_bytes(done),
+                &util::human_bytes(total),
+                &files_done,
+                &files_total,
+            ],
         ));
     }
 
@@ -1521,10 +1525,10 @@ impl Ui {
                     if self.window.is_visible() {
                         self.show_text_messages(&alias, messages, true);
                     }
-                    self.toast(&format!("Message received from {alias}"));
+                    self.toast(&crate::i18n::fmt("Message received from {}", &[&alias]));
                     self.notify_transfer(
-                        &format!("Message from {alias}"),
-                        "Copied to the clipboard",
+                        &crate::i18n::fmt("Message from {}", &[&alias]),
+                        &t("Copied to the clipboard"),
                         true,
                     );
                     return;
@@ -1536,23 +1540,30 @@ impl Ui {
                 if !messages.is_empty() {
                     self.show_text_messages(&alias, messages, false);
                 }
-                let description = format!(
-                    "{} file{} ({}) received from {alias}.",
-                    files.len(),
-                    plural(files.len()),
-                    util::human_bytes(total_bytes)
+                let description = crate::i18n::fmt(
+                    "{} file{} ({}) received from {}.",
+                    &[
+                        &files.len(),
+                        &plural(files.len()),
+                        &util::human_bytes(total_bytes),
+                        &alias,
+                    ],
                 );
                 self.show_result(
                     "emblem-ok-symbolic",
-                    "Files Received",
+                    &t("Files Received"),
                     &description,
-                    "Open Folder",
+                    &t("Open Folder"),
                     ResultAction::Received {
                         directory: directory.clone(),
                     },
                 );
-                self.toast(&format!("Received files from {alias}"));
-                self.notify_transfer(&format!("Received from {alias}"), &description, true);
+                self.toast(&crate::i18n::fmt("Received files from {}", &[&alias]));
+                self.notify_transfer(
+                    &crate::i18n::fmt("Received from {}", &[&alias]),
+                    &description,
+                    true,
+                );
             }
             Event::ReceiveText { alias, messages } => {
                 let receiving = self
@@ -1575,14 +1586,18 @@ impl Ui {
                     if self.transfer.borrow().is_none() {
                         self.back_to_device();
                     }
-                    self.toast(&format!("Message from {alias} copied to the clipboard"));
+                    self.toast(&crate::i18n::fmt(
+                        "Message from {} copied to the clipboard",
+                        &[&alias],
+                    ));
                     // Show the message in the window when it is visible, instead of
                     // leaving it only in the clipboard/notification.
                     self.show_text_messages(&alias, messages, false);
                     return;
                 }
                 if let Some(app) = self.window.application() {
-                    let notification = gio::Notification::new(&format!("Message from {alias}"));
+                    let notification =
+                        gio::Notification::new(&crate::i18n::fmt("Message from {}", &[&alias]));
                     notification.set_body(Some(&summarize(&body)));
                     notification.set_default_action("app.show-pending-text");
                     app.send_notification(Some(NOTIFICATION_ID), &notification);
@@ -1601,7 +1616,7 @@ impl Ui {
                 if let Some(app) = self.window.application() {
                     app.withdraw_notification(NOTIFICATION_ID);
                 }
-                self.toast("The sender is no longer waiting");
+                self.toast(&t("The sender is no longer waiting"));
                 if self.content_stack.visible_child_name().as_deref() == Some("decision") {
                     self.back_to_device();
                 }
@@ -1618,7 +1633,7 @@ impl Ui {
                 let description = format!("The transfer from {alias} failed: {message}");
                 self.show_result(
                     "dialog-warning-symbolic",
-                    "Transfer Failed",
+                    &t("Transfer Failed"),
                     &description,
                     "Back",
                     ResultAction::Back,
@@ -1630,10 +1645,10 @@ impl Ui {
                     return;
                 }
                 self.transfer.borrow_mut().take();
-                self.toast(&format!("{alias} canceled the transfer"));
+                self.toast(&crate::i18n::fmt("{} canceled the transfer", &[&alias]));
                 self.notify_transfer(
-                    "Transfer canceled",
-                    &format!("{alias} canceled the transfer"),
+                    &t("Transfer canceled"),
+                    &crate::i18n::fmt("{} canceled the transfer", &[&alias]),
                     true,
                 );
                 self.back_to_device();
@@ -1695,16 +1710,20 @@ impl Ui {
                 };
                 self.show_result(
                     "emblem-ok-symbolic",
-                    "Files Sent",
+                    &t("Files Sent"),
                     &description,
-                    "Send More",
+                    &t("Send More"),
                     ResultAction::Sent {
                         device: device.clone(),
                     },
                 );
                 self.finish_progress_dialog("emblem-ok-symbolic", "Files Sent", &description);
-                self.toast(&format!("Files sent to {alias}"));
-                self.notify_transfer(&format!("Sent to {alias}"), &description, true);
+                self.toast(&crate::i18n::fmt("Files sent to {}", &[&alias]));
+                self.notify_transfer(
+                    &crate::i18n::fmt("Sent to {}", &[&alias]),
+                    &description,
+                    true,
+                );
                 self.advance_queue();
             }
             Event::SendTextFinished { device } => {
@@ -1719,15 +1738,19 @@ impl Ui {
                     .unwrap_or_else(|| "the device".to_string());
                 self.show_result(
                     "emblem-ok-symbolic",
-                    "Message Sent",
-                    &format!("Message sent to {alias}."),
-                    "Send Another",
+                    &t("Message Sent"),
+                    &crate::i18n::fmt("Message sent to {}.", &[&alias]),
+                    &t("Send Another"),
                     ResultAction::MessageSent {
                         device: device.clone(),
                     },
                 );
-                self.toast(&format!("Message sent to {alias}"));
-                self.notify_transfer(&format!("Sent to {alias}"), "Message delivered", true);
+                self.toast(&crate::i18n::fmt("Message sent to {}", &[&alias]));
+                self.notify_transfer(
+                    &crate::i18n::fmt("Sent to {}", &[&alias]),
+                    &t("Message delivered"),
+                    true,
+                );
                 self.advance_queue();
             }
             Event::SendDeclined { device } => {
@@ -1742,17 +1765,17 @@ impl Ui {
                     .unwrap_or_else(|| "The device".to_string());
                 self.show_result(
                     "dialog-warning-symbolic",
-                    "Transfer Declined",
-                    &format!("{alias} declined the transfer. Nothing was sent."),
+                    &t("Transfer Declined"),
+                    &crate::i18n::fmt("{} declined the transfer. Nothing was sent.", &[&alias]),
                     "Back",
                     ResultAction::Back,
                 );
                 self.finish_progress_dialog(
                     "dialog-warning-symbolic",
-                    "Transfer Declined",
-                    &format!("{alias} declined the transfer. Nothing was sent."),
+                    &t("Transfer Declined"),
+                    &crate::i18n::fmt("{} declined the transfer. Nothing was sent.", &[&alias]),
                 );
-                self.toast("The transfer was declined");
+                self.toast(&t("The transfer was declined"));
                 self.queued_texts.borrow_mut().clear();
                 self.queue_device.borrow_mut().take();
             }
@@ -1763,15 +1786,15 @@ impl Ui {
                 self.transfer.borrow_mut().take();
                 self.show_result(
                     "network-offline-symbolic",
-                    "Device Unavailable",
-                    &format!("{message}. It was removed from the device list."),
+                    &t("Device Unavailable"),
+                    &crate::i18n::fmt("{}. It was removed from the device list.", &[&message]),
                     "Back",
                     ResultAction::Back,
                 );
                 self.finish_progress_dialog(
                     "network-offline-symbolic",
-                    "Device Unavailable",
-                    &format!("{message}. It was removed from the device list."),
+                    &t("Device Unavailable"),
+                    &crate::i18n::fmt("{}. It was removed from the device list.", &[&message]),
                 );
                 self.toast(&message);
                 self.queued_texts.borrow_mut().clear();
@@ -1790,14 +1813,14 @@ impl Ui {
                 };
                 self.show_result(
                     "dialog-warning-symbolic",
-                    "Transfer Failed",
+                    &t("Transfer Failed"),
                     &description,
                     "Back",
                     ResultAction::Back,
                 );
                 self.finish_progress_dialog(
                     "dialog-warning-symbolic",
-                    "Transfer Failed",
+                    &t("Transfer Failed"),
                     &description,
                 );
                 self.notify_transfer("Transfer failed", &description, true);
@@ -1928,13 +1951,16 @@ impl Ui {
             parts.push(format!("{texts} message{}", plural(texts)));
         }
         let dialog = adw::AlertDialog::builder()
-            .heading(&format!("Send to {}?", info.alias))
-            .body(&format!("{}, queued so far.", parts.join(" and ")))
+            .heading(crate::i18n::fmt("Send to {}?", &[&info.alias]))
+            .body(crate::i18n::fmt(
+                "{}, queued so far.",
+                &[&parts.join(" and ")],
+            ))
             .default_response("cancel")
             .close_response("cancel")
             .build();
-        dialog.add_response("cancel", "Later");
-        dialog.add_response("send", "Send Now");
+        dialog.add_response("cancel", &t("Later"));
+        dialog.add_response("send", &t("Send Now"));
         dialog.set_response_appearance("send", adw::ResponseAppearance::Suggested);
         let ui = self.clone();
         let device = key.to_string();
@@ -2010,7 +2036,7 @@ impl Ui {
                     let remove = gtk::Button::from_icon_name("window-close-symbolic");
                     remove.add_css_class("flat");
                     remove.set_valign(gtk::Align::Center);
-                    remove.set_tooltip_text(Some("Remove from the queue"));
+                    remove.set_tooltip_text(Some(t("Remove from the queue").as_str()));
                     let ui = self.clone();
                     remove.connect_clicked(move |_| {
                         if index < ui.queue.borrow().len() {
@@ -2038,8 +2064,8 @@ impl Ui {
                                 .unwrap_or_else(|| path.to_string_lossy().to_string());
                             let subtitle = match std::fs::metadata(path) {
                                 Ok(meta) if meta.is_file() => util::human_bytes(meta.len()),
-                                Ok(_) => "Folder".to_string(),
-                                Err(_) => "Unavailable".to_string(),
+                                Ok(_) => t("Folder"),
+                                Err(_) => t("Unavailable"),
                             };
                             let child = adw::ActionRow::builder()
                                 .title(&name)
@@ -2047,14 +2073,14 @@ impl Ui {
                                 .build();
                             child.set_title_lines(1);
                             child.set_subtitle_lines(1);
-                            let child_icon = gtk::Image::from_icon_name(&icon_for_path(path));
+                            let child_icon = gtk::Image::from_icon_name(icon_for_path(path));
                             child_icon.add_css_class("dim-label");
                             child.add_prefix(&child_icon);
 
                             let child_remove = gtk::Button::from_icon_name("window-close-symbolic");
                             child_remove.add_css_class("flat");
                             child_remove.set_valign(gtk::Align::Center);
-                            child_remove.set_tooltip_text(Some("Remove this file"));
+                            child_remove.set_tooltip_text(Some(t("Remove this file").as_str()));
                             let ui = self.clone();
                             child_remove.connect_clicked(move |_| {
                                 let mut queue = ui.queue.borrow_mut();
@@ -2070,10 +2096,6 @@ impl Ui {
                                         }
                                         if paths.is_empty() {
                                             true
-                                        } else if paths.len() == 1 {
-                                            let remaining = std::mem::take(paths);
-                                            queue[index] = QueueItem::files(remaining);
-                                            false
                                         } else {
                                             let remaining = std::mem::take(paths);
                                             queue[index] = QueueItem::files(remaining);
@@ -2119,7 +2141,7 @@ impl Ui {
                     let remove = gtk::Button::from_icon_name("window-close-symbolic");
                     remove.add_css_class("flat");
                     remove.set_valign(gtk::Align::Center);
-                    remove.set_tooltip_text(Some("Remove from the queue"));
+                    remove.set_tooltip_text(Some(t("Remove from the queue").as_str()));
                     let ui = self.clone();
                     remove.connect_clicked(move |_| {
                         if index < ui.queue.borrow().len() {
@@ -2262,7 +2284,7 @@ impl Ui {
                 .ellipsize(gtk::pango::EllipsizeMode::Middle)
                 .selectable(true)
                 .build();
-            let status = gtk::Label::new(Some("Waiting"));
+            let status = gtk::Label::new(Some(t("Waiting").as_str()));
             status.add_css_class("caption");
             status.add_css_class("dim-label");
             status.set_valign(gtk::Align::Center);
@@ -2451,7 +2473,7 @@ impl Ui {
             return;
         };
         let dialog = gtk::FileDialog::builder()
-            .title("Select Files to Send")
+            .title(t("Select Files to Send"))
             .modal(true)
             .build();
         let ui = self.clone();
@@ -2485,7 +2507,7 @@ impl Ui {
             return;
         };
         let dialog = gtk::FileDialog::builder()
-            .title("Select a Folder to Send")
+            .title(t("Select a Folder to Send"))
             .modal(true)
             .build();
         let ui = self.clone();
@@ -2522,7 +2544,7 @@ impl Ui {
 
     fn queue_files_dialog(self: &Rc<Self>) {
         let dialog = gtk::FileDialog::builder()
-            .title("Add Files to the Queue")
+            .title(t("Add Files to the Queue"))
             .modal(true)
             .build();
         let ui = self.clone();
@@ -2546,7 +2568,7 @@ impl Ui {
 
     fn queue_folder_dialog(self: &Rc<Self>) {
         let dialog = gtk::FileDialog::builder()
-            .title("Add a Folder to the Queue")
+            .title(t("Add a Folder to the Queue"))
             .modal(true)
             .build();
         let ui = self.clone();
@@ -2617,7 +2639,7 @@ impl Ui {
         paste_button.set_valign(gtk::Align::End);
         paste_button.set_margin_end(10);
         paste_button.set_margin_bottom(10);
-        paste_button.set_tooltip_text(Some("Paste from the clipboard"));
+        paste_button.set_tooltip_text(Some(t("Paste from the clipboard").as_str()));
         let ui = self.clone();
         paste_button.connect_clicked({
             let buffer = buffer.clone();
@@ -2861,9 +2883,9 @@ impl Ui {
             // Quick Save accepts immediately; the window is never stolen.
             let count = request.files.len().max(request.messages.len());
             let message = if count == 1 {
-                format!("Receiving an item from {}", request.peer_alias)
+                crate::i18n::fmt("Receiving an item from {}", &[&request.peer_alias])
             } else {
-                format!("Receiving {count} items from {}", request.peer_alias)
+                crate::i18n::fmt("Receiving {} items from {}", &[&count, &request.peer_alias])
             };
             self.begin_receiving(
                 request.session_id.clone(),
@@ -2901,15 +2923,16 @@ impl Ui {
         }
 
         if let Some(app) = self.window.application() {
-            let notification = gio::Notification::new(&format!("Incoming from {alias}"));
+            let notification =
+                gio::Notification::new(&crate::i18n::fmt("Incoming from {}", &[&alias]));
             notification.set_body(Some(&body));
             notification.add_button_with_target_value(
-                "Decline",
+                &t("Decline"),
                 "app.decline-transfer",
                 Some(&session_id.to_variant()),
             );
             notification.add_button_with_target_value(
-                "Accept",
+                &t("Accept"),
                 "app.accept-transfer",
                 Some(&session_id.to_variant()),
             );
@@ -2927,16 +2950,18 @@ impl Ui {
             return;
         };
         self.decision_title
-            .set_label(&format!("Incoming from {alias}"));
-        self.decision_body.set_label(&format!(
+            .set_label(&crate::i18n::fmt("Incoming from {}", &[&alias]));
+        self.decision_body.set_label(&crate::i18n::fmt(
             "{} file{} · {}\nSaved to {}",
-            files,
-            plural(files),
-            util::human_bytes(total),
-            self.core.config().download_dir_display()
+            &[
+                &files,
+                &plural(files),
+                &util::human_bytes(total),
+                &self.core.config().download_dir_display(),
+            ],
         ));
         self.content_stack.set_visible_child_name("decision");
-        self.window_title.set_subtitle("Incoming Transfer");
+        self.window_title.set_subtitle(&t("Incoming Transfer"));
     }
 
     fn answer_decision(self: &Rc<Self>, accept: bool) {
@@ -2953,9 +2978,12 @@ impl Ui {
                 pending.total_bytes,
                 pending.files_label,
             );
-            self.toast(&format!("Receiving from {}", pending.alias));
+            self.toast(&crate::i18n::fmt("Receiving from {}", &[&pending.alias]));
         } else {
-            self.toast(&format!("Declined the transfer from {}", pending.alias));
+            self.toast(&crate::i18n::fmt(
+                "Declined the transfer from {}",
+                &[&pending.alias],
+            ));
             self.back_to_device();
         }
         let _ = pending.sender.send(accept);
@@ -3059,11 +3087,11 @@ impl Ui {
 
     fn show_pin_dialog(self: &Rc<Self>, device: String, paths: Vec<PathBuf>, text: Option<String>) {
         let entry = gtk::PasswordEntry::new();
-        entry.set_placeholder_text(Some("PIN"));
+        entry.set_placeholder_text(Some(t("PIN").as_str()));
         entry.set_width_request(240);
         let is_text = text.is_some();
         let dialog = adw::AlertDialog::builder()
-            .heading("PIN Required")
+            .heading(t("PIN Required"))
             .body(if is_text {
                 "Enter the PIN shown on the other device to send your message."
             } else {
@@ -3173,8 +3201,8 @@ impl Ui {
             let group = adw::PreferencesGroup::new();
             let status = adw::StatusPage::builder()
                 .icon_name("document-open-recent-symbolic")
-                .title("No History Yet")
-                .description("Files and messages you receive will appear here.")
+                .title(t("No History Yet"))
+                .description(t("Files and messages you receive will appear here."))
                 .build();
             status.set_vexpand(true);
             group.add(&status);
@@ -3256,11 +3284,77 @@ impl Ui {
             }
         });
 
+        // Any file of this transfer that still exists on disk can be sent back
+        // to the device it came from.
+        let sendable = entry.items.iter().any(|item| {
+            matches!(
+                item.resolution(),
+                Resolution::Original(_) | Resolution::Cached(_)
+            )
+        });
+        if sendable {
+            let button = gtk::Button::builder()
+                .icon_name("document-send-symbolic")
+                .valign(gtk::Align::Center)
+                .tooltip_text(t("Send Back"))
+                .build();
+            button.add_css_class("flat");
+            let ui = self.clone();
+            let dialog = dialog.clone();
+            let entry_id = entry.id.clone();
+            button.connect_clicked(move |_| ui.send_entry_back(&entry_id, &dialog));
+            row.add_suffix(&button);
+        }
+
         if restore_expanded {
             row.set_expanded(true);
         }
 
         row
+    }
+
+    /// Sends the files of a received transfer back to the device that sent
+    /// them, for when both sides want a copy.
+    fn send_entry_back(self: &Rc<Self>, entry_id: &str, dialog: &adw::PreferencesDialog) {
+        if self.transfer.borrow().is_some() {
+            self.toast(&t("A transfer is already in progress"));
+            return;
+        }
+        let Some(entry) = self
+            .core
+            .history_snapshot()
+            .into_iter()
+            .find(|entry| entry.id == entry_id)
+        else {
+            self.toast(&t("This transfer is no longer in history"));
+            return;
+        };
+        let paths: Vec<PathBuf> = entry
+            .items
+            .iter()
+            .filter_map(|item| match item.resolution() {
+                Resolution::Original(path) | Resolution::Cached(path) => Some(path),
+                Resolution::Missing | Resolution::Message => None,
+            })
+            .collect();
+        if paths.is_empty() {
+            self.toast(&t("There is nothing left to send back"));
+            return;
+        }
+        let Some(device) = self
+            .core
+            .devices_sorted()
+            .into_iter()
+            .find(|device| device.alias == entry.alias)
+        else {
+            self.toast(&crate::i18n::fmt(
+                "{} is not available right now",
+                &[&entry.alias],
+            ));
+            return;
+        };
+        dialog.close();
+        self.start_send(device.key, paths, None);
     }
 
     fn build_history_item_row(
@@ -3350,8 +3444,10 @@ impl Ui {
                     return;
                 };
                 let alert = adw::AlertDialog::builder()
-                    .heading("No longer available")
-                    .body("This file is gone from your downloads and there is no cached copy left.")
+                    .heading(t("No longer available"))
+                    .body(t(
+                        "This file is gone from your downloads and there is no cached copy left.",
+                    ))
                     .build();
                 alert.add_response("ok", "OK");
                 alert.set_default_response(Some("ok"));
@@ -3383,8 +3479,10 @@ impl Ui {
             Resolution::Message => self.toast("Messages are not files"),
             Resolution::Missing => {
                 let alert = adw::AlertDialog::builder()
-                    .heading("No longer available")
-                    .body("This file is gone from your downloads and there is no cached copy left.")
+                    .heading(t("No longer available"))
+                    .body(t(
+                        "This file is gone from your downloads and there is no cached copy left.",
+                    ))
                     .build();
                 alert.add_response("ok", "OK");
                 alert.set_default_response(Some("ok"));
@@ -3429,7 +3527,7 @@ impl Ui {
 
     fn history_delete_dialog(self: &Rc<Self>, item_id: &str, is_file: bool) {
         let alert = adw::AlertDialog::builder()
-            .heading("Remove from History")
+            .heading(t("Remove from History"))
             .body(if is_file {
                 "Remove this item from history and its cached copy. You can also delete the original file from disk."
             } else {
@@ -3467,7 +3565,7 @@ impl Ui {
                         ui_refresh.refresh_history_dialog();
                         if let Err(err) = result {
                             let error = adw::AlertDialog::builder()
-                                .heading("Could Not Delete File")
+                                .heading(t("Could Not Delete File"))
                                 .body(&err)
                                 .build();
                             error.add_response("ok", "OK");
@@ -3489,11 +3587,11 @@ impl Ui {
         let page = adw::PreferencesPage::new();
 
         let device_group = adw::PreferencesGroup::builder()
-            .title("Device")
-            .description("Network changes take effect after restarting LocalSend.")
+            .title(t("Device"))
+            .description(t("Changes are announced to the network immediately."))
             .build();
 
-        let name_row = adw::EntryRow::builder().title("Device Name").build();
+        let name_row = adw::EntryRow::builder().title(t("Device Name")).build();
         name_row.set_text(&config.alias);
         name_row.connect_changed({
             let core = self.core.clone();
@@ -3520,7 +3618,7 @@ impl Ui {
         let type_names =
             gtk::StringList::new(&["Desktop", "Phone", "Web Browser", "Headless", "Server"]);
         let type_row = adw::ComboRow::builder()
-            .title("Device Type")
+            .title(t("Device Type"))
             .model(&type_names)
             .build();
         let type_index: u32 = match config.device_type.as_str() {
@@ -3546,28 +3644,42 @@ impl Ui {
         });
         device_group.add(&type_row);
 
-        let port_row = adw::EntryRow::builder().title("Receiving Port").build();
+        let port_row = adw::EntryRow::builder().title(t("Receiving Port")).build();
         port_row.set_text(&config.port.to_string());
+        // Rebinding on every keystroke would tear the listening socket away
+        // while the number is still being typed, so wait for a pause.
+        let port_rebind_queued = Rc::new(Cell::new(false));
         port_row.connect_changed({
             let core = self.core.clone();
+            let queued = port_rebind_queued.clone();
             move |row| {
-                if let Ok(port) = row.text().to_string().parse::<u16>() {
-                    if port >= 1024 && core.config().port != port {
-                        core.update_config(|config| config.port = port);
-                    }
+                let Ok(port) = row.text().trim().parse::<u16>() else {
+                    return;
+                };
+                if port < 1024 || core.config().port == port {
+                    return;
                 }
+                core.update_config(|config| config.port = port);
+                if queued.replace(true) {
+                    return;
+                }
+                let queued = queued.clone();
+                glib::timeout_add_seconds_local_once(1, move || {
+                    queued.set(false);
+                    crate::server::reconfigure();
+                });
             }
         });
         device_group.add(&port_row);
         page.add(&device_group);
 
         let receiving_group = adw::PreferencesGroup::builder()
-            .title("Receiving")
-            .description("Ask the sender for these settings.")
+            .title(t("Receiving"))
+            .description(t("Ask the sender for these settings."))
             .build();
 
         let pin_row = adw::PasswordEntryRow::builder()
-            .title("PIN (optional)")
+            .title(t("PIN (optional)"))
             .build();
         pin_row.set_text(&config.pin);
         pin_row.connect_changed({
@@ -3585,7 +3697,7 @@ impl Ui {
         receiving_group.add(&pin_row);
 
         let folder_row = adw::ActionRow::builder()
-            .title("Save Location")
+            .title(t("Save Location"))
             .subtitle(config.download_dir_display())
             .build();
         let choose_button = gtk::Button::with_label("Choose…");
@@ -3599,7 +3711,7 @@ impl Ui {
             let folder_row = folder_row.clone();
             move |_| {
                 let dialog = gtk::FileDialog::builder()
-                    .title("Choose Download Folder")
+                    .title(t("Choose Download Folder"))
                     .modal(true)
                     .build();
                 let core = core.clone();
@@ -3618,25 +3730,28 @@ impl Ui {
         receiving_group.add(&folder_row);
 
         let encryption_row = adw::SwitchRow::builder()
-            .title("Encrypt Transfers")
-            .subtitle("Uses a self-signed certificate. Change takes effect after restarting.")
+            .title(t("Encrypt Transfers"))
+            .subtitle(t(
+                "Uses a self-signed certificate. Applies to new connections immediately.",
+            ))
             .build();
         encryption_row.set_active(config.encryption);
         encryption_row.connect_active_notify({
             let core = self.core.clone();
             move |row| {
                 core.update_config(|config| config.encryption = row.is_active());
+                crate::server::reconfigure();
             }
         });
         receiving_group.add(&encryption_row);
 
         page.add(&receiving_group);
 
-        let history_group = adw::PreferencesGroup::builder().title("History").build();
+        let history_group = adw::PreferencesGroup::builder().title(t("History")).build();
 
         let history_cache_row = adw::SwitchRow::builder()
-            .title("Cache Received Files in History")
-            .subtitle("Keep cached copies of received files (up to 128 MB) so they stay available from History.")
+            .title(t("Cache Received Files in History"))
+            .subtitle(t("Keep cached copies of received files (up to 128 MB) so they stay available from History."))
             .build();
         history_cache_row.set_active(config.history_cache);
         history_cache_row.connect_active_notify({
@@ -3649,11 +3764,11 @@ impl Ui {
 
         let usage = util::human_bytes(self.core.history_usage());
         let history_size_row = adw::ActionRow::builder()
-            .title("History Cache")
-            .subtitle(&format!("{usage} used"))
+            .title(t("History Cache"))
+            .subtitle(crate::i18n::fmt("{} used", &[&usage]))
             .build();
         let clear_history_button = gtk::Button::builder()
-            .label("Clear")
+            .label(t("Clear"))
             .valign(gtk::Align::Center)
             .build();
         clear_history_button.add_css_class("destructive-action");
@@ -3663,7 +3778,7 @@ impl Ui {
             clear_history_button.connect_clicked(move |_| {
                 core.history_clear_all();
                 let usage = util::human_bytes(core.history_usage());
-                history_size_row.set_subtitle(&format!("{usage} used"));
+                history_size_row.set_subtitle(&crate::i18n::fmt("{} used", &[&usage]));
             });
         }
         history_size_row.add_suffix(&clear_history_button);
@@ -3673,15 +3788,17 @@ impl Ui {
 
         let background_group =
             adw::PreferencesGroup::builder()
-                .title("Background &amp; Tray")
+                .title(t("Background &amp; Tray"))
                 .description(
                     "The tray icon is only shown when a StatusNotifierWatcher is available on the session bus.",
                 )
                 .build();
 
         let background_row = adw::SwitchRow::builder()
-            .title("Run in Background")
-            .subtitle("Keep sharing and discovery alive after the window is closed.")
+            .title(t("Run in Background"))
+            .subtitle(t(
+                "Keep sharing and discovery alive after the window is closed.",
+            ))
             .build();
         background_row.set_active(config.run_in_background);
         background_row.connect_active_notify({
@@ -3696,23 +3813,27 @@ impl Ui {
         background_group.add(&background_row);
 
         let tray_row = adw::SwitchRow::builder()
-            .title("Show Tray Icon")
-            .subtitle("Needs a StatusNotifierWatcher on the desktop; takes effect after a restart.")
+            .title(t("Show Tray Icon"))
+            .subtitle(t("Needs a StatusNotifierWatcher on the desktop."))
             .build();
         tray_row.set_active(config.tray_icon);
         tray_row.connect_active_notify({
             let core = self.core.clone();
             let ui = self.clone();
             move |row| {
-                core.update_config(|config| config.tray_icon = row.is_active());
+                let enabled = row.is_active();
+                core.update_config(|config| config.tray_icon = enabled);
+                crate::tray::set_enabled(&core, enabled);
                 ui.set_background(ui.core.config().run_in_background);
             }
         });
         background_group.add(&tray_row);
 
         let start_row = adw::SwitchRow::builder()
-            .title("Start in Background")
-            .subtitle("Launch without showing the window when the tray icon is available.")
+            .title(t("Start in Background"))
+            .subtitle(t(
+                "Launch without showing the window when the tray icon is available.",
+            ))
             .build();
         start_row.set_active(config.start_in_background);
         start_row.connect_active_notify({
@@ -3724,7 +3845,7 @@ impl Ui {
         background_group.add(&start_row);
 
         let quick_row = adw::SwitchRow::builder()
-            .title("Quick Save")
+            .title(t("Quick Save"))
             .subtitle(
                 "Receiving never asks for confirmation, so transfers are always accepted. Quick Save keeps the window closed and reports progress through notifications.",
             )
@@ -3741,14 +3862,14 @@ impl Ui {
         page.add(&background_group);
 
         let files_group = adw::PreferencesGroup::builder()
-            .title("GNOME Files")
+            .title(t("GNOME Files"))
             .description(
                 "Adds “Send with LocalSend” to the context menu in Files. Needs the Nautilus Python bindings from your distribution.",
             )
             .build();
         let files_row = adw::SwitchRow::builder()
-            .title("Send with LocalSend")
-            .subtitle("Show the menu item for selected files and folders.")
+            .title(t("Send with LocalSend"))
+            .subtitle(t("Show the menu item for selected files and folders."))
             .build();
         files_row.set_active(config.files_integration);
         files_row.connect_active_notify({
@@ -3809,11 +3930,11 @@ impl Ui {
         hint.set_margin_start(12);
         hint.set_margin_end(12);
 
-        let heading = gtk::Label::new(Some("Python Bindings Missing"));
+        let heading = gtk::Label::new(Some(t("Python Bindings Missing").as_str()));
         heading.set_halign(gtk::Align::Start);
         heading.add_css_class("heading");
         let body = gtk::Label::builder()
-            .label("Files cannot load the menu item without the Nautilus Python bindings. Run this command, then restart Files.")
+            .label(t("Files cannot load the menu item without the Nautilus Python bindings. Run this command, then restart Files."))
             .wrap(true)
             .xalign(0.0)
             .build();
@@ -3850,7 +3971,7 @@ impl Ui {
         frame.add_css_class("card");
 
         let copy = gtk::Button::builder()
-            .label("Copy Command")
+            .label(t("Copy Command"))
             .halign(gtk::Align::Start)
             .build();
         copy.add_css_class("pill");
@@ -3920,8 +4041,8 @@ impl Ui {
     /// Shown when the extension cannot be copied out of the app.
     fn show_files_install_error(&self) {
         let alert = adw::AlertDialog::builder()
-            .heading("Installation Failed")
-            .body("Could not install the Files menu item. Make sure this directory exists and is writable:")
+            .heading(t("Installation Failed"))
+            .body(t("Could not install the Files menu item. Make sure this directory exists and is writable:"))
             .build();
         alert.add_response("close", "Close");
         alert.set_default_response(Some("close"));
@@ -4208,7 +4329,7 @@ fn history_item_menu(label: &str, item_id: &str) -> gtk::MenuButton {
     let button = gtk::MenuButton::builder()
         .icon_name("view-more-symbolic")
         .valign(gtk::Align::Center)
-        .tooltip_text("More options")
+        .tooltip_text(t("More options"))
         .menu_model(&menu)
         .build();
     button.add_css_class("flat");
@@ -4223,9 +4344,9 @@ fn item_subtitle(item: &HistoryItem, resolution: &Resolution) -> String {
                 Resolution::Original(_) => {
                     format!("{size} · {}", crate::config::display_path(path))
                 }
-                Resolution::Cached(_) => format!("{size} · Cached copy"),
+                Resolution::Cached(_) => format!("{size} · {}", t("Cached copy")),
                 Resolution::Message | Resolution::Missing => {
-                    format!("{size} · No longer available")
+                    format!("{size} · {}", t("No longer available"))
                 }
             }
         }

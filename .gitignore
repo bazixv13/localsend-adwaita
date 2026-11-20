@@ -9,3 +9,13 @@ __pycache__/
 
 # Exported assistant/chat transcripts kept locally for reference
 freebuff-chat-*.md
+
+# Compiled translation catalogues (checked in as .po only)
+/po/locale/
+
+# Icon design studies, kept out of the app tree
+/icon-concepts/
+
+# Release archives built locally
+/localsend-adwaita-*.tar.gz
+/stage/

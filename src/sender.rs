@@ -945,13 +945,14 @@ mod tests {
         std::fs::create_dir_all(&receive_dir).unwrap();
         std::fs::create_dir_all(&send_dir).unwrap();
 
-        let mut receiver_config = Config::default();
-        receiver_config.alias = "TLS Receiver".to_string();
-        receiver_config.fingerprint = "receiver-http-fingerprint".to_string();
-        receiver_config.encryption = true;
-        receiver_config.pin.clear();
-        receiver_config.port = 0;
-        receiver_config.download_dir = receive_dir.clone();
+        let receiver_config = Config {
+            alias: "TLS Receiver".to_string(),
+            fingerprint: "receiver-http-fingerprint".to_string(),
+            encryption: true,
+            port: 0,
+            download_dir: receive_dir.clone(),
+            ..Config::default()
+        };
         let receiver_core = Arc::new(Core::for_test_with_identity(
             receiver_config,
             receiver_identity.clone(),
@@ -980,10 +981,12 @@ mod tests {
             }
         });
 
-        let mut sender_config = Config::default();
-        sender_config.alias = "TLS Sender".to_string();
-        sender_config.fingerprint = "sender-http-fingerprint".to_string();
-        sender_config.encryption = false;
+        let sender_config = Config {
+            alias: "TLS Sender".to_string(),
+            fingerprint: "sender-http-fingerprint".to_string(),
+            encryption: false,
+            ..Config::default()
+        };
         let sender_core = Arc::new(Core::for_test_with_identity(
             sender_config,
             sender_identity.clone(),
@@ -1006,12 +1009,14 @@ mod tests {
             }
         });
 
-        let mut info = DeviceInfo::default();
-        info.alias = "TLS Receiver".to_string();
-        info.fingerprint = receiver_identity.fingerprint.clone();
-        info.port = Some(port);
-        info.protocol = Some("https".to_string());
-        info.download = Some(false);
+        let info = DeviceInfo {
+            alias: "TLS Receiver".to_string(),
+            fingerprint: receiver_identity.fingerprint.clone(),
+            port: Some(port),
+            protocol: Some("https".to_string()),
+            download: Some(false),
+            ..DeviceInfo::default()
+        };
         sender_core.upsert_device(info, "127.0.0.1".to_string());
         let key = sender_core
             .devices_sorted()
@@ -1071,18 +1076,22 @@ mod tests {
             key_der,
         });
 
-        let mut config = Config::default();
-        config.alias = "LocalSend Adwaita".to_string();
-        config.fingerprint = "interop-http-fingerprint".to_string();
-        config.encryption = false;
+        let config = Config {
+            alias: "LocalSend Adwaita".to_string(),
+            fingerprint: "interop-http-fingerprint".to_string(),
+            encryption: false,
+            ..Config::default()
+        };
         let core = Arc::new(Core::for_test_with_identity(config, identity));
 
-        let mut info = DeviceInfo::default();
-        info.alias = "Live LocalSend Peer".to_string();
-        info.fingerprint = fingerprint;
-        info.port = Some(port);
-        info.protocol = Some("https".to_string());
-        info.download = Some(false);
+        let info = DeviceInfo {
+            alias: "Live LocalSend Peer".to_string(),
+            fingerprint,
+            port: Some(port),
+            protocol: Some("https".to_string()),
+            download: Some(false),
+            ..DeviceInfo::default()
+        };
         core.upsert_device(info, ip);
         let key = core
             .devices_sorted()
@@ -1120,17 +1129,21 @@ mod tests {
     }
 
     fn text_sender_core(port: u16) -> (Arc<Core>, String) {
-        let mut config = Config::default();
-        config.alias = "Text Sender".to_string();
-        config.fingerprint = "text-sender-self".to_string();
-        config.encryption = false;
+        let config = Config {
+            alias: "Text Sender".to_string(),
+            fingerprint: "text-sender-self".to_string(),
+            encryption: false,
+            ..Config::default()
+        };
         let core = Arc::new(Core::for_test(config));
-        let mut info = DeviceInfo::default();
-        info.alias = "Text Receiver".to_string();
-        info.fingerprint = "text-receiver-peer".to_string();
-        info.port = Some(port);
-        info.protocol = Some("http".to_string());
-        info.download = Some(false);
+        let info = DeviceInfo {
+            alias: "Text Receiver".to_string(),
+            fingerprint: "text-receiver-peer".to_string(),
+            port: Some(port),
+            protocol: Some("http".to_string()),
+            download: Some(false),
+            ..DeviceInfo::default()
+        };
         core.upsert_device(info, "127.0.0.1".to_string());
         let key = core.devices_sorted()[0].key.clone();
         (core, key)
@@ -1294,18 +1307,22 @@ mod tests {
     fn sends_a_file_over_http() {
         let (port, uploads, server) = mock_receiver();
 
-        let mut config = Config::default();
-        config.alias = "Test Sender".to_string();
-        config.fingerprint = "self-fingerprint".to_string();
-        config.encryption = false;
+        let config = Config {
+            alias: "Test Sender".to_string(),
+            fingerprint: "self-fingerprint".to_string(),
+            encryption: false,
+            ..Config::default()
+        };
         let core = Arc::new(Core::for_test(config));
 
-        let mut info = DeviceInfo::default();
-        info.alias = "Mock Receiver".to_string();
-        info.fingerprint = "peer-fingerprint".to_string();
-        info.port = Some(port);
-        info.protocol = Some("http".to_string());
-        info.download = Some(false);
+        let info = DeviceInfo {
+            alias: "Mock Receiver".to_string(),
+            fingerprint: "peer-fingerprint".to_string(),
+            port: Some(port),
+            protocol: Some("http".to_string()),
+            download: Some(false),
+            ..DeviceInfo::default()
+        };
         core.upsert_device(info, "127.0.0.1".to_string());
         let key = core.devices_sorted()[0].key.clone();
 
@@ -1390,18 +1407,22 @@ mod tests {
             }
         });
 
-        let mut config = Config::default();
-        config.alias = "Parallel Sender".to_string();
-        config.fingerprint = "parallel-self".to_string();
-        config.encryption = false;
+        let config = Config {
+            alias: "Parallel Sender".to_string(),
+            fingerprint: "parallel-self".to_string(),
+            encryption: false,
+            ..Config::default()
+        };
         let core = Arc::new(Core::for_test(config));
 
-        let mut info = DeviceInfo::default();
-        info.alias = "Parallel Receiver".to_string();
-        info.fingerprint = "parallel-peer".to_string();
-        info.port = Some(port);
-        info.protocol = Some("http".to_string());
-        info.download = Some(false);
+        let info = DeviceInfo {
+            alias: "Parallel Receiver".to_string(),
+            fingerprint: "parallel-peer".to_string(),
+            port: Some(port),
+            protocol: Some("http".to_string()),
+            download: Some(false),
+            ..DeviceInfo::default()
+        };
         core.upsert_device(info, "127.0.0.1".to_string());
         let key = core.devices_sorted()[0].key.clone();
 
@@ -1476,18 +1497,22 @@ mod tests {
             }
         });
 
-        let mut config = Config::default();
-        config.alias = "Bounds Sender".to_string();
-        config.fingerprint = "bounds-self".to_string();
-        config.encryption = false;
+        let config = Config {
+            alias: "Bounds Sender".to_string(),
+            fingerprint: "bounds-self".to_string(),
+            encryption: false,
+            ..Config::default()
+        };
         let core = Arc::new(Core::for_test(config));
 
-        let mut info = DeviceInfo::default();
-        info.alias = "Bounds Receiver".to_string();
-        info.fingerprint = "bounds-peer".to_string();
-        info.port = Some(port);
-        info.protocol = Some("http".to_string());
-        info.download = Some(false);
+        let info = DeviceInfo {
+            alias: "Bounds Receiver".to_string(),
+            fingerprint: "bounds-peer".to_string(),
+            port: Some(port),
+            protocol: Some("http".to_string()),
+            download: Some(false),
+            ..DeviceInfo::default()
+        };
         core.upsert_device(info, "127.0.0.1".to_string());
         let key = core.devices_sorted()[0].key.clone();
 
