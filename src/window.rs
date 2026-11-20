@@ -1133,9 +1133,11 @@ impl Ui {
         let bar = gtk::ProgressBar::new();
         bar.set_show_text(false);
         bar.set_fraction(0.0);
-        let detail = gtk::Label::new(Some(&format!(
-            "Connecting to the device… {count} item{}",
-            plural(count)
+        let detail = gtk::Label::new(Some(&crate::i18n::np(
+            count as u64,
+            "Connecting to the device… {} item",
+            "Connecting to the device… {} items",
+            &[],
         )));
         detail.add_css_class("caption");
         detail.add_css_class("dim-label");
@@ -1540,14 +1542,11 @@ impl Ui {
                 if !messages.is_empty() {
                     self.show_text_messages(&alias, messages, false);
                 }
-                let description = crate::i18n::fmt(
-                    "{} file{} ({}) received from {}.",
-                    &[
-                        &files.len(),
-                        &plural(files.len()),
-                        &util::human_bytes(total_bytes),
-                        &alias,
-                    ],
+                let description = crate::i18n::np(
+                    files.len() as u64,
+                    "{} file ({}) received from {}.",
+                    "{} files ({}) received from {}.",
+                    &[&util::human_bytes(total_bytes), &alias],
                 );
                 self.show_result(
                     "emblem-ok-symbolic",
@@ -1699,13 +1698,13 @@ impl Ui {
                     .map(|(info, _)| info.alias)
                     .unwrap_or_else(|| "the device".to_string());
                 let description = if files == 0 {
-                    format!("{alias} did not need any files.")
+                    crate::i18n::fmt("{} did not need any files.", &[&alias])
                 } else {
-                    format!(
-                        "{} file{} ({}) sent to {alias}.",
-                        files,
-                        plural(files),
-                        util::human_bytes(total_bytes)
+                    crate::i18n::np(
+                        files as u64,
+                        "{} file ({}) sent to {}.",
+                        "{} files ({}) sent to {}.",
+                        &[&util::human_bytes(total_bytes), &alias],
                     )
                 };
                 self.show_result(
@@ -1945,10 +1944,20 @@ impl Ui {
         let (files, texts) = self.queue_summary();
         let mut parts = Vec::new();
         if files > 0 {
-            parts.push(format!("{files} file item{}", plural(files)));
+            parts.push(crate::i18n::np(
+                files as u64,
+                "{} file item",
+                "{} file items",
+                &[],
+            ));
         }
         if texts > 0 {
-            parts.push(format!("{texts} message{}", plural(texts)));
+            parts.push(crate::i18n::np(
+                texts as u64,
+                "{} message",
+                "{} messages",
+                &[],
+            ));
         }
         let dialog = adw::AlertDialog::builder()
             .heading(crate::i18n::fmt("Send to {}?", &[&info.alias]))
@@ -2006,9 +2015,11 @@ impl Ui {
         self.queue.borrow_mut().push(QueueItem::files(paths));
         self.refresh_queue();
         self.show_empty();
-        self.toast(&format!(
-            "Queued {count} item{}. Pick a device to send.",
-            plural(count)
+        self.toast(&crate::i18n::np(
+            count as u64,
+            "Queued {} item. Pick a device to send.",
+            "Queued {} items. Pick a device to send.",
+            &[],
         ));
     }
 
@@ -2900,10 +2911,11 @@ impl Ui {
         }
 
         let count = request.files.len();
-        let body = format!(
-            "{count} file{} ({})",
-            plural(count),
-            util::human_bytes(request.total_bytes)
+        let body = crate::i18n::np(
+            count as u64,
+            "{} file ({})",
+            "{} files ({})",
+            &[&util::human_bytes(request.total_bytes)],
         );
         let session_id = request.session_id.clone();
         let alias = request.peer_alias.clone();
@@ -2951,11 +2963,11 @@ impl Ui {
         };
         self.decision_title
             .set_label(&crate::i18n::fmt("Incoming from {}", &[&alias]));
-        self.decision_body.set_label(&crate::i18n::fmt(
-            "{} file{} · {}\nSaved to {}",
+        self.decision_body.set_label(&crate::i18n::np(
+            files as u64,
+            "{} file · {}\nSaved to {}",
+            "{} files · {}\nSaved to {}",
             &[
-                &files,
-                &plural(files),
                 &util::human_bytes(total),
                 &self.core.config().download_dir_display(),
             ],
@@ -3820,11 +3832,31 @@ impl Ui {
         tray_row.connect_active_notify({
             let core = self.core.clone();
             let ui = self.clone();
+            let weak_row = tray_row.downgrade();
             move |row| {
                 let enabled = row.is_active();
                 core.update_config(|config| config.tray_icon = enabled);
                 crate::tray::set_enabled(&core, enabled);
                 ui.set_background(ui.core.config().run_in_background);
+                if !enabled {
+                    return;
+                }
+                // Publishing the icon is asynchronous. When the desktop has no
+                // StatusNotifierWatcher the switch would otherwise turn on and
+                // nothing would happen, so say so and turn it back off.
+                let check_core = core.clone();
+                let check_ui = ui.clone();
+                let weak_row = weak_row.clone();
+                glib::timeout_add_seconds_local_once(2, move || {
+                    if check_core.tray_active() {
+                        return;
+                    }
+                    check_core.update_config(|config| config.tray_icon = false);
+                    check_ui.toast(&t("No tray icon support on this desktop"));
+                    if let Some(row) = weak_row.upgrade() {
+                        row.set_active(false);
+                    }
+                });
             }
         });
         background_group.add(&tray_row);
@@ -4104,14 +4136,6 @@ fn summarize(text: &str) -> String {
         out.push('…');
     }
     out
-}
-
-fn plural(count: usize) -> &'static str {
-    if count == 1 {
-        ""
-    } else {
-        "s"
-    }
 }
 
 fn open_folder(path: &Path) {

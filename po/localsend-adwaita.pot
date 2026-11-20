@@ -12,6 +12,74 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Language: en\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+#: src/sender.rs:60
+msgid "The message is empty"
+msgstr ""
+
+#: src/sender.rs:71
+msgid "The device is no longer available"
+msgstr ""
+
+#: src/sender.rs:172
+msgid "The device sent an invalid response: {}"
+msgstr ""
+
+#: src/sender.rs:255
+msgid "No files were selected"
+msgstr ""
+
+#: src/sender.rs:596
+msgid "The device is not accepting transfers"
+msgstr ""
+
+#: src/sender.rs:612
+msgid "Secure connection failed: {}"
+msgstr ""
+
+#: src/server.rs:187
+msgid "the sender stopped responding"
+msgstr ""
+
+#: src/server.rs:852
+msgid "The upload was interrupted"
+msgstr ""
+
+#: src/server.rs:863
+msgid "The file could not be written to disk"
+msgstr ""
+
+#: src/server.rs:875
+msgid "The disk is full"
+msgstr ""
+
+#: src/server.rs:917
+msgid "The upload was incomplete"
+msgstr ""
+
+#: src/server.rs:929
+msgid "A received file did not match its checksum"
+msgstr ""
+
+#: src/server.rs:942
+msgid "The file could not be saved"
+msgstr ""
+
+#: src/server.rs:1086
+msgid "The message was interrupted"
+msgstr ""
+
+#: src/server.rs:1092
+msgid "The message is too large"
+msgstr ""
+
+#: src/server.rs:1121
+msgid "The message was incomplete"
+msgstr ""
+
+#: src/server.rs:1131
+msgid "The message did not match its checksum"
+msgstr ""
+
 #: src/tray.rs:59
 msgid "Hide LocalSend"
 msgstr ""
@@ -96,359 +164,367 @@ msgstr ""
 msgid "Preparing files…"
 msgstr ""
 
-#: src/window.rs:1248
+#: src/window.rs:1250
 msgid "{} files"
 msgstr ""
 
-#: src/window.rs:1528
+#: src/window.rs:1530
 msgid "Message received from {}"
 msgstr ""
 
-#: src/window.rs:1530
+#: src/window.rs:1532
 msgid "Message from {}"
 msgstr ""
 
-#: src/window.rs:1531
+#: src/window.rs:1533
 msgid "Copied to the clipboard"
 msgstr ""
 
-#: src/window.rs:1554
+#: src/window.rs:1553
 msgid "Files Received"
 msgstr ""
 
-#: src/window.rs:1556
+#: src/window.rs:1555
 msgid "Open Folder"
 msgstr ""
 
-#: src/window.rs:1561
+#: src/window.rs:1560
 msgid "Received files from {}"
 msgstr ""
 
-#: src/window.rs:1563
+#: src/window.rs:1562
 msgid "Received from {}"
 msgstr ""
 
-#: src/window.rs:1619
+#: src/window.rs:1618
 msgid "The sender is no longer waiting"
 msgstr ""
 
-#: src/window.rs:1636
+#: src/window.rs:1635
 msgid "Transfer Failed"
 msgstr ""
 
-#: src/window.rs:1648
+#: src/window.rs:1647
 msgid "{} canceled the transfer"
 msgstr ""
 
-#: src/window.rs:1650
+#: src/window.rs:1649
 msgid "Transfer canceled"
 msgstr ""
 
-#: src/window.rs:1715
+#: src/window.rs:1701
+msgid "{} did not need any files."
+msgstr ""
+
+#: src/window.rs:1714
 msgid "Send More"
 msgstr ""
 
-#: src/window.rs:1721
+#: src/window.rs:1720
 msgid "Files sent to {}"
 msgstr ""
 
-#: src/window.rs:1723
+#: src/window.rs:1722
 msgid "Sent to {}"
 msgstr ""
 
-#: src/window.rs:1741
+#: src/window.rs:1740
 msgid "Message Sent"
 msgstr ""
 
-#: src/window.rs:1742
+#: src/window.rs:1741
 msgid "Message sent to {}."
 msgstr ""
 
-#: src/window.rs:1743
+#: src/window.rs:1742
 msgid "Send Another"
 msgstr ""
 
-#: src/window.rs:1748
+#: src/window.rs:1747
 msgid "Message sent to {}"
 msgstr ""
 
-#: src/window.rs:1751
+#: src/window.rs:1750
 msgid "Message delivered"
 msgstr ""
 
-#: src/window.rs:1768
+#: src/window.rs:1767
 msgid "Transfer Declined"
 msgstr ""
 
-#: src/window.rs:1769
+#: src/window.rs:1768
 msgid "{} declined the transfer. Nothing was sent."
 msgstr ""
 
-#: src/window.rs:1778
+#: src/window.rs:1777
 msgid "The transfer was declined"
 msgstr ""
 
-#: src/window.rs:1789
+#: src/window.rs:1788
 msgid "Device Unavailable"
 msgstr ""
 
-#: src/window.rs:1790
+#: src/window.rs:1789
 msgid "{}. It was removed from the device list."
 msgstr ""
 
-#: src/window.rs:1954
+#: src/window.rs:1963
 msgid "Send to {}?"
 msgstr ""
 
-#: src/window.rs:1962
+#: src/window.rs:1971
 msgid "Later"
 msgstr ""
 
-#: src/window.rs:1963
+#: src/window.rs:1972
 msgid "Send Now"
 msgstr ""
 
-#: src/window.rs:2039
+#: src/window.rs:2050
 msgid "Remove from the queue"
 msgstr ""
 
-#: src/window.rs:2067
+#: src/window.rs:2078
 msgid "Folder"
 msgstr ""
 
-#: src/window.rs:2068
+#: src/window.rs:2079
 msgid "Unavailable"
 msgstr ""
 
-#: src/window.rs:2083
+#: src/window.rs:2094
 msgid "Remove this file"
 msgstr ""
 
-#: src/window.rs:2287
+#: src/window.rs:2298
 msgid "Waiting"
 msgstr ""
 
-#: src/window.rs:2476
+#: src/window.rs:2487
 msgid "Select Files to Send"
 msgstr ""
 
-#: src/window.rs:2510
+#: src/window.rs:2521
 msgid "Select a Folder to Send"
 msgstr ""
 
-#: src/window.rs:2547
+#: src/window.rs:2558
 msgid "Add Files to the Queue"
 msgstr ""
 
-#: src/window.rs:2571
+#: src/window.rs:2582
 msgid "Add a Folder to the Queue"
 msgstr ""
 
-#: src/window.rs:2642
+#: src/window.rs:2653
 msgid "Paste from the clipboard"
 msgstr ""
 
-#: src/window.rs:2886
+#: src/window.rs:2897
 msgid "Receiving an item from {}"
 msgstr ""
 
-#: src/window.rs:2888
+#: src/window.rs:2899
 msgid "Receiving {} items from {}"
 msgstr ""
 
-#: src/window.rs:2927
+#: src/window.rs:2939
 msgid "Incoming from {}"
 msgstr ""
 
-#: src/window.rs:2930
+#: src/window.rs:2942
 msgid "Decline"
 msgstr ""
 
-#: src/window.rs:2935
+#: src/window.rs:2947
 msgid "Accept"
 msgstr ""
 
-#: src/window.rs:2964
+#: src/window.rs:2976
 msgid "Incoming Transfer"
 msgstr ""
 
-#: src/window.rs:2981
+#: src/window.rs:2993
 msgid "Receiving from {}"
 msgstr ""
 
-#: src/window.rs:3090
+#: src/window.rs:3102
 msgid "PIN"
 msgstr ""
 
-#: src/window.rs:3094
+#: src/window.rs:3106
 msgid "PIN Required"
 msgstr ""
 
-#: src/window.rs:3204
+#: src/window.rs:3216
 msgid "No History Yet"
 msgstr ""
 
-#: src/window.rs:3205
+#: src/window.rs:3217
 msgid "Files and messages you receive will appear here."
 msgstr ""
 
-#: src/window.rs:3299
+#: src/window.rs:3311
 msgid "Send Back"
 msgstr ""
 
-#: src/window.rs:3320
+#: src/window.rs:3332
 msgid "A transfer is already in progress"
 msgstr ""
 
-#: src/window.rs:3329
+#: src/window.rs:3341
 msgid "This transfer is no longer in history"
 msgstr ""
 
-#: src/window.rs:3341
+#: src/window.rs:3353
 msgid "There is nothing left to send back"
 msgstr ""
 
-#: src/window.rs:3447
+#: src/window.rs:3459
 msgid "No longer available"
 msgstr ""
 
-#: src/window.rs:3530
+#: src/window.rs:3542
 msgid "Remove from History"
 msgstr ""
 
-#: src/window.rs:3568
+#: src/window.rs:3580
 msgid "Could Not Delete File"
 msgstr ""
 
-#: src/window.rs:3590
+#: src/window.rs:3602
 msgid "Device"
 msgstr ""
 
-#: src/window.rs:3591
+#: src/window.rs:3603
 msgid "Changes are announced to the network immediately."
 msgstr ""
 
-#: src/window.rs:3594
+#: src/window.rs:3606
 msgid "Device Name"
 msgstr ""
 
-#: src/window.rs:3621
+#: src/window.rs:3633
 msgid "Device Type"
 msgstr ""
 
-#: src/window.rs:3647
+#: src/window.rs:3659
 msgid "Receiving Port"
 msgstr ""
 
-#: src/window.rs:3677
+#: src/window.rs:3689
 msgid "Receiving"
 msgstr ""
 
-#: src/window.rs:3678
+#: src/window.rs:3690
 msgid "Ask the sender for these settings."
 msgstr ""
 
-#: src/window.rs:3682
+#: src/window.rs:3694
 msgid "PIN (optional)"
 msgstr ""
 
-#: src/window.rs:3700
+#: src/window.rs:3712
 msgid "Save Location"
 msgstr ""
 
-#: src/window.rs:3714
+#: src/window.rs:3726
 msgid "Choose Download Folder"
 msgstr ""
 
-#: src/window.rs:3733
+#: src/window.rs:3745
 msgid "Encrypt Transfers"
 msgstr ""
 
-#: src/window.rs:3750
+#: src/window.rs:3762
 msgid "History"
 msgstr ""
 
-#: src/window.rs:3753
+#: src/window.rs:3765
 msgid "Cache Received Files in History"
 msgstr ""
 
-#: src/window.rs:3754
+#: src/window.rs:3766
 msgid "Keep cached copies of received files (up to 128 MB) so they stay available from History."
 msgstr ""
 
-#: src/window.rs:3767
+#: src/window.rs:3779
 msgid "History Cache"
 msgstr ""
 
-#: src/window.rs:3768
+#: src/window.rs:3780
 msgid "{} used"
 msgstr ""
 
-#: src/window.rs:3771
+#: src/window.rs:3783
 msgid "Clear"
 msgstr ""
 
-#: src/window.rs:3791
+#: src/window.rs:3803
 msgid "Background &amp; Tray"
 msgstr ""
 
-#: src/window.rs:3798
+#: src/window.rs:3810
 msgid "Run in Background"
 msgstr ""
 
-#: src/window.rs:3816
+#: src/window.rs:3828
 msgid "Show Tray Icon"
 msgstr ""
 
-#: src/window.rs:3817
+#: src/window.rs:3829
 msgid "Needs a StatusNotifierWatcher on the desktop."
 msgstr ""
 
-#: src/window.rs:3833
-msgid "Start in Background"
-msgstr ""
-
-#: src/window.rs:3848
-msgid "Quick Save"
+#: src/window.rs:3855
+msgid "No tray icon support on this desktop"
 msgstr ""
 
 #: src/window.rs:3865
+msgid "Start in Background"
+msgstr ""
+
+#: src/window.rs:3880
+msgid "Quick Save"
+msgstr ""
+
+#: src/window.rs:3897
 msgid "GNOME Files"
 msgstr ""
 
-#: src/window.rs:3871
+#: src/window.rs:3903
 msgid "Send with LocalSend"
 msgstr ""
 
-#: src/window.rs:3872
+#: src/window.rs:3904
 msgid "Show the menu item for selected files and folders."
 msgstr ""
 
-#: src/window.rs:3933
+#: src/window.rs:3965
 msgid "Python Bindings Missing"
 msgstr ""
 
-#: src/window.rs:3937
+#: src/window.rs:3969
 msgid "Files cannot load the menu item without the Nautilus Python bindings. Run this command, then restart Files."
 msgstr ""
 
-#: src/window.rs:3974
+#: src/window.rs:4006
 msgid "Copy Command"
 msgstr ""
 
-#: src/window.rs:4044
+#: src/window.rs:4076
 msgid "Installation Failed"
 msgstr ""
 
-#: src/window.rs:4045
+#: src/window.rs:4077
 msgid "Could not install the Files menu item. Make sure this directory exists and is writable:"
 msgstr ""
 
-#: src/window.rs:4332
+#: src/window.rs:4356
 msgid "More options"
 msgstr ""
 
-#: src/window.rs:4347
+#: src/window.rs:4371
 msgid "Cached copy"
 msgstr ""
 

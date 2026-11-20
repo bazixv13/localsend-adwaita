@@ -159,8 +159,9 @@ fn reopen(core: &Core, sockets: &mut Sockets) -> bool {
     let listener = match listen_socket() {
         Ok(listener) => listener,
         Err(error) => {
-            core.emit(Event::ServerError(format!(
-                "Device discovery is unavailable: {error}"
+            core.emit(Event::ServerError(crate::i18n::fmt(
+                "Device discovery is unavailable: {}",
+                &[&error],
             )));
             return false;
         }
@@ -168,8 +169,9 @@ fn reopen(core: &Core, sockets: &mut Sockets) -> bool {
     let sender = match send_socket() {
         Ok(sender) => sender,
         Err(error) => {
-            core.emit(Event::ServerError(format!(
-                "Could not open the announcement socket: {error}"
+            core.emit(Event::ServerError(crate::i18n::fmt(
+                "Could not open the announcement socket: {}",
+                &[&error],
             )));
             return false;
         }

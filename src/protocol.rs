@@ -150,6 +150,11 @@ pub struct PrepareUploadRequest {
 pub struct PrepareUploadResponse {
     pub session_id: String,
     pub files: HashMap<String, String>,
+    /// Bytes the receiver already holds for a file, so a sender can continue
+    /// from there instead of starting over. This is an extension to v2.2:
+    /// peers that do not know it ignore the field and upload the whole file.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub resume: HashMap<String, u64>,
 }
 
 /// Builds the API URL for a peer or for our own routes.

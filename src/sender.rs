@@ -57,7 +57,7 @@ fn send_text(
     if text.is_empty() {
         core.emit(Event::SendFailed {
             device: device_key,
-            message: "The message is empty".to_string(),
+            message: crate::i18n::t("The message is empty"),
         });
         return;
     }
@@ -68,7 +68,7 @@ fn send_text(
     let Some((info, ip)) = core.device(&device_key) else {
         core.emit(Event::SendFailed {
             device: device_key,
-            message: "The device is no longer available".to_string(),
+            message: crate::i18n::t("The device is no longer available"),
         });
         return;
     };
@@ -169,7 +169,7 @@ fn send_text(
         Err(error) => {
             core.emit(Event::SendFailed {
                 device: device_key,
-                message: format!("The device sent an invalid response: {error}"),
+                message: crate::i18n::fmt("The device sent an invalid response: {}", &[&error]),
             });
             return;
         }
@@ -242,7 +242,7 @@ fn send(
     let Some((info, ip)) = core.device(&device_key) else {
         core.emit(Event::SendFailed {
             device: device_key,
-            message: "The device is no longer available".to_string(),
+            message: crate::i18n::t("The device is no longer available"),
         });
         return;
     };
@@ -252,7 +252,7 @@ fn send(
         Ok(_) => {
             core.emit(Event::SendFailed {
                 device: device_key,
-                message: "No files were selected".to_string(),
+                message: crate::i18n::t("No files were selected"),
             });
             return;
         }
@@ -375,7 +375,7 @@ fn send(
         Err(error) => {
             core.emit(Event::SendFailed {
                 device: device_key,
-                message: format!("The device sent an invalid response: {error}"),
+                message: crate::i18n::fmt("The device sent an invalid response: {}", &[&error]),
             });
             return;
         }
@@ -453,7 +453,10 @@ fn send(
                             if let Ok(mut slot) = failed.lock() {
                                 slot.get_or_insert((
                                     device_key.clone(),
-                                    format!("Could not open {}: {error}", file.name),
+                                    crate::i18n::fmt(
+                                        "Could not open {}: {}",
+                                        &[&file.name, &error],
+                                    ),
                                 ));
                             }
                             return;
@@ -590,7 +593,7 @@ fn emit_transport_failure(core: &Core, device: String, message: String) {
     if message.to_ascii_lowercase().contains("connection refused") {
         core.mark_device_unreachable(&device);
         core.emit(Event::SendUnavailable {
-            message: "The device is not accepting transfers".to_string(),
+            message: crate::i18n::t("The device is not accepting transfers"),
         });
     } else {
         core.emit(Event::SendFailed {
@@ -604,9 +607,9 @@ fn friendly_transport(message: &str) -> String {
     if message.contains("timed out") || message.contains("timeout") {
         "The connection timed out".to_string()
     } else if message.contains("Connection refused") {
-        "The device is not accepting transfers".to_string()
+        crate::i18n::t("The device is not accepting transfers")
     } else if message.contains("certificate") || message.contains("fingerprint") {
-        format!("Secure connection failed: {message}")
+        crate::i18n::fmt("Secure connection failed: {}", &[&message])
     } else {
         message.to_string()
     }
