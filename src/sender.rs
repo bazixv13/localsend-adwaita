@@ -62,7 +62,9 @@ fn send_text(
         return;
     }
     if cancel.load(Ordering::SeqCst) {
-        core.emit(Event::SendCanceled);
+        core.emit(Event::SendCanceled {
+            device: device_key.clone(),
+        });
         return;
     }
     let Some((info, ip)) = core.device(&device_key) else {
@@ -182,7 +184,9 @@ fn send_text(
     };
     if cancel.load(Ordering::SeqCst) {
         cancel_session(&agent, &ip, port, protocol, &prepare.session_id);
-        core.emit(Event::SendCanceled);
+        core.emit(Event::SendCanceled {
+            device: device_key.clone(),
+        });
         return;
     }
     let upload_url = format!(
@@ -205,7 +209,9 @@ fn send_text(
         Err(error) => {
             if cancel.load(Ordering::SeqCst) {
                 cancel_session(&agent, &ip, port, protocol, &prepare.session_id);
-                core.emit(Event::SendCanceled);
+                core.emit(Event::SendCanceled {
+                    device: device_key.clone(),
+                });
                 return;
             }
             match error {
@@ -215,9 +221,12 @@ fn send_text(
                 }
                 ureq::Error::Status(code, response) => {
                     cancel_session(&agent, &ip, port, protocol, &prepare.session_id);
-                    let message =
-                        net::ApiError::Status(code, response.into_string().unwrap_or_default())
-                            .to_string();
+                    let body = response.into_string().unwrap_or_default();
+                    if peer_canceled_upload(code, &body) {
+                        core.emit(Event::SendCanceled { device: device_key });
+                        return;
+                    }
+                    let message = net::ApiError::Status(code, body).to_string();
                     core.emit(Event::SendFailed {
                         device: device_key,
                         message,
@@ -489,11 +498,17 @@ fn send(
                         }
                         let message = match error {
                             ureq::Error::Status(403, _) => "The transfer was declined".to_string(),
-                            ureq::Error::Status(code, response) => net::ApiError::Status(
-                                code,
-                                response.into_string().unwrap_or_default(),
-                            )
-                            .to_string(),
+                            ureq::Error::Status(code, response) => {
+                                let body = response.into_string().unwrap_or_default();
+                                if peer_canceled_upload(code, &body) {
+                                    // The receiver canceled: stop the other
+                                    // uploads too instead of reporting this
+                                    // one as a failure.
+                                    cancel.store(true, Ordering::SeqCst);
+                                    return;
+                                }
+                                net::ApiError::Status(code, body).to_string()
+                            }
                             ureq::Error::Transport(error) => error.to_string(),
                         };
                         if let Ok(mut slot) = failed.lock() {
@@ -518,7 +533,9 @@ fn send(
 
     if cancel.load(Ordering::SeqCst) {
         cancel_session(&agent, &ip, port, protocol, &session_id);
-        core.emit(Event::SendCanceled);
+        core.emit(Event::SendCanceled {
+            device: device_key.clone(),
+        });
         return;
     }
     let failure = failed.lock().ok().and_then(|mut slot| slot.take());
@@ -575,6 +592,12 @@ fn file_sha256(path: &Path) -> Option<String> {
         hasher.update(&buffer[..read]);
     }
     Some(crate::util::to_hex(&hasher.finalize()))
+}
+
+/// Our receiver answers an upload that was canceled on its side with 409 and
+/// this body, so the sender can tell a cancellation from a busy receiver.
+fn peer_canceled_upload(code: u16, body: &str) -> bool {
+    code == 409 && body.trim() == "canceled"
 }
 
 fn cancel_session(agent: &ureq::Agent, ip: &str, port: u16, protocol: &str, session_id: &str) {

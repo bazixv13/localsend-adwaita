@@ -771,7 +771,7 @@ async fn upload(
         return StatusCode::FORBIDDEN.into_response();
     }
     if session.canceled.load(Ordering::SeqCst) {
-        return StatusCode::CONFLICT.into_response();
+        return canceled_response();
     }
     if file.done.load(Ordering::SeqCst) {
         return StatusCode::CONFLICT.into_response();
@@ -840,12 +840,17 @@ async fn upload(
             // The partial stays for the grace period: the sender can retry the
             // same name without the folder filling up with copies.
             drop(output);
-            return StatusCode::CONFLICT.into_response();
+            return canceled_response();
         }
         let chunk = match chunk {
             Ok(chunk) => chunk,
             Err(_) => {
                 drop(output);
+                // A sender that cancels drops the connection before its
+                // /cancel call arrives, so give that call a moment.
+                if peer_canceled(&session).await {
+                    return canceled_response();
+                }
                 fail_session(
                     &core,
                     &session,
@@ -909,6 +914,11 @@ async fn upload(
     drop(output);
 
     if received < file.size {
+        // The sender can stop mid-file when it cancels; its /cancel call may
+        // still be on the way, so this is not a failure until it is ruled out.
+        if peer_canceled(&session).await {
+            return canceled_response();
+        }
         // A truncated upload is not a completed file, but its bytes are kept
         // for the grace period so a retry is not starting from nothing.
         fail_session(
@@ -1153,8 +1163,7 @@ async fn cancel(
     let Some(session_id) = query.get("sessionId").cloned() else {
         return StatusCode::BAD_REQUEST.into_response();
     };
-    if let Some(session) = core.take_session(&session_id) {
-        session.canceled.store(true, Ordering::SeqCst);
+    if let Some(session) = core.cancel_session(&session_id) {
         core.emit(Event::ReceiveCanceled {
             session_id: session.id.clone(),
             alias: session.peer_alias.clone(),
@@ -1163,6 +1172,25 @@ async fn cancel(
     // The peer can also cancel while it is *receiving* from us.
     core.cancel_outgoing(&session_id);
     StatusCode::OK.into_response()
+}
+
+/// A canceled transfer can look like a broken connection: the sender stops
+/// mid-body and posts `/cancel` on a second connection a moment later. Wait
+/// briefly so the transfer is reported as canceled instead of as a failure.
+async fn peer_canceled(session: &ReceiveSession) -> bool {
+    for _ in 0..20 {
+        if session.canceled.load(Ordering::SeqCst) {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    session.canceled.load(Ordering::SeqCst)
+}
+
+/// The receiver canceled this upload. The body lets our sender tell the case
+/// apart from a busy receiver (both are 409); other clients only see the code.
+fn canceled_response() -> Response {
+    (StatusCode::CONFLICT, "canceled").into_response()
 }
 
 fn fail_session(core: &Core, session: &Arc<ReceiveSession>, message: &str) {
@@ -1651,6 +1679,103 @@ mod tests {
         assert_eq!(
             std::fs::read(directory.join("resume.bin")).unwrap(),
             contents
+        );
+
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[tokio::test]
+    async fn a_canceled_upload_is_answered_with_the_cancel_token() {
+        let directory =
+            std::env::temp_dir().join(format!("localsend-cancel-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+
+        let config = Config {
+            alias: "Test Receiver".to_string(),
+            fingerprint: "self-test-fingerprint".to_string(),
+            encryption: false,
+            quick_save: true,
+            download_dir: directory.clone(),
+            ..Config::default()
+        };
+        let core = Arc::new(Core::for_test(config));
+        core.set_server(53317, "http");
+        let events = core.subscribe();
+        let app = router(core.clone());
+        let peer = SocketAddr::from(([127, 0, 0, 1], 4444));
+        let contents = b"0123456789".to_vec();
+
+        let prepare_body = json!({
+            "info": {
+                "alias": "Mock Sender",
+                "version": "2.2",
+                "deviceType": "desktop",
+                "fingerprint": "peer-cancel-fingerprint",
+                "port": 4444,
+                "protocol": "http",
+                "download": false
+            },
+            "files": {
+                "f1": {
+                    "id": "f1",
+                    "fileName": "cancel.bin",
+                    "size": contents.len(),
+                    "fileType": "application/octet-stream"
+                }
+            }
+        })
+        .to_string();
+
+        let prepare = Request::builder()
+            .method("POST")
+            .uri("/api/localsend/v2/prepare-upload")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo::<SocketAddr>(peer))
+            .body(Body::from(prepare_body))
+            .unwrap();
+        let response = app.clone().oneshot(prepare).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let prepared: PrepareUploadResponse = serde_json::from_slice(&bytes).unwrap();
+        let token = prepared.files.get("f1").unwrap().clone();
+        while events.try_recv().is_ok() {}
+
+        // The sender gives up before the upload starts.
+        let cancel = Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/api/localsend/v2/cancel?sessionId={}",
+                prepared.session_id
+            ))
+            .extension(ConnectInfo::<SocketAddr>(peer))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(cancel).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let event = events.try_recv().expect("the cancel must reach the UI");
+        assert!(matches!(event, Event::ReceiveCanceled { .. }));
+
+        // A late upload is refused with the token our sender understands.
+        let upload = Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/api/localsend/v2/upload?sessionId={}&fileId=f1&token={}",
+                prepared.session_id, token
+            ))
+            .extension(ConnectInfo::<SocketAddr>(peer))
+            .body(Body::from(contents))
+            .unwrap();
+        let response = app.oneshot(upload).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert_eq!(body.as_ref(), b"canceled");
+        assert!(
+            !directory.join("cancel.bin").exists(),
+            "a canceled transfer must not publish a file"
         );
 
         let _ = std::fs::remove_dir_all(&directory);

@@ -231,7 +231,9 @@ pub enum Event {
     SendUnavailable {
         message: String,
     },
-    SendCanceled,
+    SendCanceled {
+        device: String,
+    },
     /// The tray icon asked for the window to be shown.
     TrayShow,
     /// The tray icon asked for the window to be hidden again.
@@ -608,7 +610,21 @@ impl Core {
     }
 
     pub fn has_active_session(&self) -> bool {
-        !self.sessions.lock().unwrap().is_empty()
+        self.sessions
+            .lock()
+            .unwrap()
+            .values()
+            .any(|session| !session.canceled.load(Ordering::SeqCst))
+    }
+
+    /// Marks a session as canceled but keeps it addressable, so uploads that
+    /// were already on the wire are answered with "canceled" instead of
+    /// looking like a decline. The idle sweep removes it later.
+    pub fn cancel_session(&self, id: &str) -> Option<Arc<ReceiveSession>> {
+        let sessions = self.sessions.lock().unwrap();
+        let session = sessions.get(id)?;
+        session.canceled.store(true, Ordering::SeqCst);
+        Some(session.clone())
     }
 
     /// Sessions whose sender disappeared must not block new transfers forever.
