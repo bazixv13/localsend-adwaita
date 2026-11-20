@@ -44,12 +44,14 @@ jobs:
           install -m644 data/io.github.localsend_adwaita.LocalSend.metainfo.xml "$stage/"
           install -m644 data/icons/scalable/apps/io.github.localsend_adwaita.LocalSend.svg "$stage/"
           install -m644 COPYING NOTICE README.md "$stage/"
-          # Compile the translations into the tarball's share/locale.
+          # Compile the translations next to the binary. This path is outside
+          # share/locale so a Flatpak does not split it into a locale extension
+          # that is only downloaded for selected languages.
           for po in po/*.po; do
             lang=$(basename "$po" .po)
-            install -d "$stage/share/locale/$lang/LC_MESSAGES"
+            install -d "$stage/share/localsend-adwaita/locale/$lang/LC_MESSAGES"
             msgfmt --check "$po" \
-              -o "$stage/share/locale/$lang/LC_MESSAGES/localsend-adwaita.mo"
+              -o "$stage/share/localsend-adwaita/locale/$lang/LC_MESSAGES/localsend-adwaita.mo"
           done
           # Rolling asset used by the README, contents at the archive root.
           tar -czf "localsend-adwaita-x86_64.tar.gz" -C "$stage" .

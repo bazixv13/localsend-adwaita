@@ -40,6 +40,9 @@ const PARTIAL_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 /// Expired partials are swept at most this often, so the check stays cheap.
 const PARTIAL_SWEEP_INTERVAL: Duration = Duration::from_secs(60 * 60);
 static LAST_PARTIAL_SWEEP: OnceLock<Mutex<Instant>> = OnceLock::new();
+/// Free space is re-checked this often while a file streams in, so a disk that
+/// fills up mid-transfer fails cleanly instead of filling the filesystem.
+const SPACE_CHECK_BYTES: u64 = 8 * 1024 * 1024;
 /// A transfer with no bytes moving for this long is treated as abandoned.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -135,16 +138,20 @@ fn tls_config_for(core: &Core) -> Option<Arc<rustls::ServerConfig>> {
     }
 }
 
+fn bind_port(port: u16) -> Result<std::net::TcpListener, String> {
+    let listener =
+        std::net::TcpListener::bind(("0.0.0.0", port)).map_err(|error| error.to_string())?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("Could not configure the listening socket: {e}"))?;
+    Ok(listener)
+}
+
 fn bind(preferred_port: u16) -> Result<std::net::TcpListener, String> {
     let mut last_error = String::new();
     for port in preferred_port..=preferred_port.saturating_add(10) {
-        match std::net::TcpListener::bind(("0.0.0.0", port)) {
-            Ok(listener) => {
-                listener
-                    .set_nonblocking(true)
-                    .map_err(|e| format!("Could not configure the listening socket: {e}"))?;
-                return Ok(listener);
-            }
+        match bind_port(port) {
+            Ok(listener) => return Ok(listener),
             Err(error) => last_error = format!("Port {port}: {error}"),
         }
     }
@@ -177,7 +184,7 @@ async fn serve(
                     core.emit(Event::ReceiveFailed {
                         session_id,
                         alias,
-                        message: "the sender stopped responding".to_string(),
+                        message: crate::i18n::t("the sender stopped responding"),
                     });
                 }
             }
@@ -192,7 +199,10 @@ async fn serve(
                 }
                 let requested = core.config().port;
                 if requested != port {
-                    match bind(requested).and_then(|bound| {
+                    // A port chosen in Settings is used as given: silently
+                    // moving to the next free one would make the number in the
+                    // settings dialog a lie.
+                    match bind_port(requested).and_then(|bound| {
                         TcpListener::from_std(bound)
                             .map_err(|error| format!("Could not use the new port: {error}"))
                     }) {
@@ -204,8 +214,8 @@ async fn serve(
                                 .unwrap_or(requested);
                         }
                         Err(error) => core.emit(Event::Toast(crate::i18n::fmt(
-                            "Could not change the receiving port: {}",
-                            &[&error],
+                            "Could not use port {}: {} Still receiving on {}.",
+                            &[&requested, &error, &port],
                         ))),
                     }
                 }
@@ -372,7 +382,7 @@ async fn prepare_upload(
         core.emit(Event::ReceiveFailed {
             session_id,
             alias,
-            message: "the sender stopped responding".to_string(),
+            message: crate::i18n::t("the sender stopped responding"),
         });
     }
     if !core.begin_prepare() {
@@ -503,8 +513,9 @@ async fn prepare_upload(
             Ok(directory) => directory,
             Err(error) => {
                 eprintln!("{error}");
-                core.emit(Event::Toast(format!(
-                    "Could not save received files: {error}"
+                core.emit(Event::Toast(crate::i18n::fmt(
+                    "Could not save received files: {}",
+                    &[&error],
                 )));
                 core.end_prepare();
                 return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -607,6 +618,25 @@ async fn prepare_upload(
         }));
     }
 
+    // Tell the sender how much of each file is already on disk, so it can
+    // continue from there instead of starting over. Peers that ignore the
+    // field simply upload the whole file again.
+    let mut resume: HashMap<String, u64> = HashMap::new();
+    for file in &session_files {
+        if file.existing || crate::protocol::is_text_file(&file.file_type) {
+            continue;
+        }
+        let Some(relative) = crate::protocol::sanitize_relative_path(&file.name) else {
+            continue;
+        };
+        let partial = partial_path(&directory.join(relative));
+        if let Ok(metadata) = std::fs::metadata(&partial) {
+            if metadata.is_file() && metadata.len() > 0 && metadata.len() < file.size {
+                resume.insert(file.id.clone(), metadata.len());
+            }
+        }
+    }
+
     let peer_port = request.info.port_or_default();
     let peer_protocol = request.info.protocol().to_string();
     let peer_fingerprint = request.info.fingerprint.clone();
@@ -643,6 +673,7 @@ async fn prepare_upload(
         &PrepareUploadResponse {
             session_id,
             files: tokens,
+            resume,
         },
     )
 }
@@ -754,11 +785,33 @@ async fn upload(
         return StatusCode::BAD_REQUEST.into_response();
     };
 
-    let target = match create_target(&session.directory, &relative) {
-        Ok(target) => target,
-        Err(error) => {
-            eprintln!("Could not create target file: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    // A sender that knows how much is already on disk continues from there
+    // instead of starting the file over. Peers that do not use the extension
+    // send no offset, which rewrites the partial from the beginning.
+    let offset: u64 = query
+        .get("offset")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    if offset > file.size {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+
+    let target = if offset == 0 {
+        match create_target(&session.directory, &relative) {
+            Ok(target) => target,
+            Err(error) => {
+                eprintln!("Could not create target file: {error}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        }
+    } else {
+        match resume_target(&session.directory, &relative, offset) {
+            Ok(target) => target,
+            Err(ResumeError::Mismatch) => return StatusCode::CONFLICT.into_response(),
+            Err(ResumeError::Io(error)) => {
+                eprintln!("Could not resume a transfer: {error}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
         }
     };
     if let Ok(mut slot) = file.path.lock() {
@@ -768,8 +821,18 @@ async fn upload(
     let mut output = tokio::fs::File::from_std(target.file);
     let mut stream = body.into_data_stream();
     let mut hasher = Sha256::new();
-    let mut received = 0u64;
+    let mut received = offset;
+    if offset > 0 {
+        // The checksum covers the whole file, so the prefix already on disk is
+        // hashed before the remaining bytes stream in.
+        if let Err(error) = hash_prefix(&target.temp, offset, &mut hasher) {
+            eprintln!("Could not verify the resumed bytes: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        session.received_bytes.fetch_add(offset, Ordering::SeqCst);
+    }
     let mut last_emit = Instant::now() - Duration::from_secs(1);
+    let mut next_space_check = received.saturating_add(SPACE_CHECK_BYTES);
     let total = session.total_bytes.max(1);
 
     while let Some(chunk) = stream.next().await {
@@ -783,18 +846,37 @@ async fn upload(
             Ok(chunk) => chunk,
             Err(_) => {
                 drop(output);
-                fail_session(&core, &session, "The upload was interrupted");
+                fail_session(
+                    &core,
+                    &session,
+                    &crate::i18n::t("The upload was interrupted"),
+                );
                 return StatusCode::BAD_REQUEST.into_response();
             }
         };
         if let Err(error) = output.write_all(&chunk).await {
             eprintln!("Write failed for {}: {error}", target.path.display());
             drop(output);
-            fail_session(&core, &session, "The file could not be written to disk");
+            fail_session(
+                &core,
+                &session,
+                &crate::i18n::t("The file could not be written to disk"),
+            );
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
         hasher.update(&chunk);
         received += chunk.len() as u64;
+        if received >= next_space_check {
+            next_space_check = received.saturating_add(SPACE_CHECK_BYTES);
+            if let Some(free) = available_space(&session.directory) {
+                if free < DISK_RESERVE {
+                    // Another program filled the disk while this file grew.
+                    drop(output);
+                    fail_session(&core, &session, &crate::i18n::t("The disk is full"));
+                    return StatusCode::INSUFFICIENT_STORAGE.into_response();
+                }
+            }
+        }
         let chunk_len = chunk.len() as u64;
         let done = session
             .received_bytes
@@ -817,7 +899,11 @@ async fn upload(
     if let Err(error) = output.flush().await {
         eprintln!("Flush failed for {}: {error}", target.path.display());
         drop(output);
-        fail_session(&core, &session, "The file could not be written to disk");
+        fail_session(
+            &core,
+            &session,
+            &crate::i18n::t("The file could not be written to disk"),
+        );
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     drop(output);
@@ -825,7 +911,11 @@ async fn upload(
     if received < file.size {
         // A truncated upload is not a completed file, but its bytes are kept
         // for the grace period so a retry is not starting from nothing.
-        fail_session(&core, &session, "The upload was incomplete");
+        fail_session(
+            &core,
+            &session,
+            &crate::i18n::t("The upload was incomplete"),
+        );
         return StatusCode::BAD_REQUEST.into_response();
     }
 
@@ -836,7 +926,7 @@ async fn upload(
             fail_session(
                 &core,
                 &session,
-                "A received file did not match its checksum",
+                &crate::i18n::t("A received file did not match its checksum"),
             );
             return StatusCode::UNPROCESSABLE_ENTITY.into_response();
         }
@@ -846,7 +936,11 @@ async fn upload(
     if let Err(error) = tokio::fs::rename(&target.temp, &target.path).await {
         eprintln!("Could not finish {}: {error}", target.path.display());
         let _ = tokio::fs::remove_file(&target.temp).await;
-        fail_session(&core, &session, "The file could not be saved");
+        fail_session(
+            &core,
+            &session,
+            &crate::i18n::t("The file could not be saved"),
+        );
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     apply_file_times(&file, Some(target.path.clone()));
@@ -986,12 +1080,16 @@ async fn receive_text(
         let chunk = match chunk {
             Ok(chunk) => chunk,
             Err(_) => {
-                fail_session(&core, &session, "The message was interrupted");
+                fail_session(
+                    &core,
+                    &session,
+                    &crate::i18n::t("The message was interrupted"),
+                );
                 return StatusCode::BAD_REQUEST.into_response();
             }
         };
         if data.len().saturating_add(chunk.len()) as u64 > MAX_TEXT_BYTES {
-            fail_session(&core, &session, "The message is too large");
+            fail_session(&core, &session, &crate::i18n::t("The message is too large"));
             return StatusCode::PAYLOAD_TOO_LARGE.into_response();
         }
         data.extend_from_slice(&chunk);
@@ -1017,13 +1115,21 @@ async fn receive_text(
     }
 
     if received < file.size {
-        fail_session(&core, &session, "The message was incomplete");
+        fail_session(
+            &core,
+            &session,
+            &crate::i18n::t("The message was incomplete"),
+        );
         return StatusCode::BAD_REQUEST.into_response();
     }
     if let Some(expected) = file.sha256.as_deref() {
         let actual = crate::util::to_hex(&hasher.finalize());
         if !expected.eq_ignore_ascii_case(&actual) {
-            fail_session(&core, &session, "The message did not match its checksum");
+            fail_session(
+                &core,
+                &session,
+                &crate::i18n::t("The message did not match its checksum"),
+            );
             return StatusCode::UNPROCESSABLE_ENTITY.into_response();
         }
     }
@@ -1175,6 +1281,57 @@ fn remove_expired_partials(directory: &Path, depth: usize) {
             let _ = std::fs::remove_file(&path);
         }
     }
+}
+
+enum ResumeError {
+    /// The partial does not hold exactly the announced prefix, so the sender
+    /// has to start the file again.
+    Mismatch,
+    Io(std::io::Error),
+}
+
+/// Opens a partial for appending at `offset`. Its length must match exactly,
+/// so a sender can neither skip bytes nor overwrite what is already there.
+fn resume_target(
+    directory: &Path,
+    relative: &Path,
+    offset: u64,
+) -> Result<TargetFile, ResumeError> {
+    let path = directory.join(relative);
+    if path.exists() {
+        return Err(ResumeError::Mismatch);
+    }
+    let temp = partial_path(&path);
+    let metadata = std::fs::metadata(&temp).map_err(ResumeError::Io)?;
+    if !metadata.is_file() || metadata.len() != offset {
+        return Err(ResumeError::Mismatch);
+    }
+    let file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&temp)
+        .map_err(ResumeError::Io)?;
+    Ok(TargetFile { path, temp, file })
+}
+
+/// Feeds the bytes already on disk into the checksum, so the final digest still
+/// covers the whole file when only the tail was uploaded.
+fn hash_prefix(path: &Path, offset: u64, hasher: &mut Sha256) -> std::io::Result<()> {
+    let mut file = std::fs::File::open(path)?;
+    let mut buffer = vec![0u8; 1024 * 1024];
+    let mut hashed = 0u64;
+    while hashed < offset {
+        let want = usize::try_from((offset - hashed).min(buffer.len() as u64)).unwrap_or(0);
+        let read = file.read(&mut buffer[..want])?;
+        if read == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "the partial is shorter than the resume offset",
+            ));
+        }
+        hasher.update(&buffer[..read]);
+        hashed += read as u64;
+    }
+    Ok(())
 }
 
 fn partial_path(path: &Path) -> PathBuf {

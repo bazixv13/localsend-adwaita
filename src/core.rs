@@ -390,16 +390,16 @@ impl Core {
     }
 
     pub fn fingerprint(&self) -> String {
-        if self.protocol() == "https" {
-            self.identity
-                .read()
-                .unwrap()
-                .as_ref()
-                .map(|identity| identity.fingerprint.clone())
-                .unwrap_or_default()
-        } else {
-            self.config.read().unwrap().fingerprint.clone()
-        }
+        // The certificate fingerprint identifies the device under either
+        // protocol, so toggling encryption no longer makes peers treat it as a
+        // brand new device.
+        self.identity
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|identity| identity.fingerprint.clone())
+            .filter(|fingerprint| !fingerprint.is_empty())
+            .unwrap_or_else(|| self.config.read().unwrap().fingerprint.clone())
     }
 
     pub fn is_own_fingerprint(&self, fingerprint: &str) -> bool {
@@ -769,6 +769,19 @@ impl Default for Core {
 mod tests {
     use super::*;
     use crate::config::Config;
+
+    #[test]
+    fn the_fingerprint_does_not_depend_on_the_protocol() {
+        let core = Core::for_test(Config {
+            fingerprint: "stable-config-fingerprint".to_string(),
+            ..Config::default()
+        });
+        core.set_server(53317, "http");
+        let unencrypted = core.fingerprint();
+        core.set_server(53317, "https");
+        assert_eq!(unencrypted, core.fingerprint());
+        assert_eq!(unencrypted, "stable-config-fingerprint");
+    }
 
     #[test]
     fn removes_device_after_failed_liveness_probes() {

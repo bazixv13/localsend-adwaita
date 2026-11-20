@@ -46,8 +46,9 @@ pub fn run() -> glib::ExitCode {
         }
 
         if let Err(error) = crate::server::start(core.clone()) {
-            core.emit(Event::ServerError(format!(
-                "Receiving is unavailable: {error}"
+            core.emit(Event::ServerError(crate::i18n::fmt(
+                "Receiving is unavailable: {}",
+                &[&error],
             )));
         }
         crate::discovery::spawn(core.clone());

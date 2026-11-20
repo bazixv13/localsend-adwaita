@@ -58,13 +58,13 @@ mkdir -p /tmp/ls ~/.local/bin ~/.local/share/applications ~/.local/share/metainf
   && install -m644 /tmp/ls/io.github.localsend_adwaita.LocalSend.desktop ~/.local/share/applications/ \
   && install -m644 /tmp/ls/io.github.localsend_adwaita.LocalSend.metainfo.xml ~/.local/share/metainfo/ \
   && install -m644 /tmp/ls/io.github.localsend_adwaita.LocalSend.svg ~/.local/share/icons/hicolor/scalable/apps/ \
-  && (cp -r /tmp/ls/share/locale/. ~/.local/share/locale/ 2>/dev/null || true) \
+  && (cp -r /tmp/ls/share/. ~/.local/share/ 2>/dev/null || true) \
   && rm -rf /tmp/ls \
   && update-desktop-database ~/.local/share/applications 2>/dev/null; localsend-adwaita
 ```
 
 `~/.local/bin` must be on your `PATH`. Uninstall by deleting those files and the
-installed `localsend-adwaita.mo` catalogues under `~/.local/share/locale`.
+installed catalogues under `~/.local/share/localsend-adwaita`.
 
 ### From source (one paste)
 
