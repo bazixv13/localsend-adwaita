@@ -1,0 +1,455 @@
+# German translation for LocalSend for GNOME.
+# This file is distributed under the same licence as the application.
+msgid ""
+msgstr ""
+"Project-Id-Version: localsend-adwaita\n"
+"PO-Revision-Date: 2026-11-20 12:00+0000\n"
+"Last-Translator: LocalSend Adwaita Contributors\n"
+"Language-Team: German\n"
+"Report-Msgid-Bugs-To: https://github.com/bazixv13/localsend-adwaita/issues\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: de\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: src/tray.rs:59
+msgid "Hide LocalSend"
+msgstr "LocalSend ausblenden"
+
+#: src/tray.rs:61
+msgid "Show LocalSend"
+msgstr "LocalSend anzeigen"
+
+#: src/tray.rs:75
+msgid "Quit"
+msgstr "Beenden"
+
+#: src/window.rs:324
+msgid "Send Files"
+msgstr "Dateien senden"
+
+#: src/window.rs:335
+msgid "Add Files…"
+msgstr "Dateien hinzufügen…"
+
+#: src/window.rs:341
+msgid "Add Folder…"
+msgstr "Ordner hinzufügen…"
+
+#: src/window.rs:346
+msgid "Add Text…"
+msgstr "Text hinzufügen…"
+
+#: src/window.rs:365
+msgid "Drop files or folders to queue them"
+msgstr "Dateien oder Ordner ablegen, um sie einzureihen"
+
+#: src/window.rs:370
+msgid "Queue"
+msgstr "Warteschlange"
+
+#: src/window.rs:407
+msgid "Nearby Devices"
+msgstr "Geräte in der Nähe"
+
+#: src/window.rs:439
+msgid "No Devices Found"
+msgstr "Keine Geräte gefunden"
+
+#: src/window.rs:463
+msgid "Searching for devices…"
+msgstr "Suche nach Geräten…"
+
+#: src/window.rs:491
+msgid "Send Files…"
+msgstr "Dateien senden…"
+
+#: src/window.rs:499
+msgid "Send Folder…"
+msgstr "Ordner senden…"
+
+#: src/window.rs:505
+msgid "Send Text…"
+msgstr "Text senden…"
+
+#: src/window.rs:524
+msgid "or drop files and folders here"
+msgstr "oder Dateien und Ordner hier ablegen"
+
+#: src/window.rs:556
+msgid "Show file names"
+msgstr "Dateinamen anzeigen"
+
+#: src/window.rs:566
+msgid "Cancel"
+msgstr "Abbrechen"
+
+#: src/window.rs:592
+msgid "Files Sent"
+msgstr "Dateien gesendet"
+
+#: src/window.rs:761
+msgid "Transfer progress"
+msgstr "Übertragungsfortschritt"
+
+#: src/window.rs:1128
+msgid "Preparing files…"
+msgstr "Dateien werden vorbereitet…"
+
+#: src/window.rs:1248
+msgid "{} files"
+msgstr "{} Dateien"
+
+#: src/window.rs:1528
+msgid "Message received from {}"
+msgstr "Nachricht von {} empfangen"
+
+#: src/window.rs:1530
+msgid "Message from {}"
+msgstr "Nachricht von {}"
+
+#: src/window.rs:1531
+msgid "Copied to the clipboard"
+msgstr "In die Zwischenablage kopiert"
+
+#: src/window.rs:1554
+msgid "Files Received"
+msgstr "Dateien empfangen"
+
+#: src/window.rs:1556
+msgid "Open Folder"
+msgstr "Ordner öffnen"
+
+#: src/window.rs:1561
+msgid "Received files from {}"
+msgstr "Dateien von {} empfangen"
+
+#: src/window.rs:1563
+msgid "Received from {}"
+msgstr "Empfangen von {}"
+
+#: src/window.rs:1619
+msgid "The sender is no longer waiting"
+msgstr "Der Absender wartet nicht mehr"
+
+#: src/window.rs:1636
+msgid "Transfer Failed"
+msgstr "Übertragung fehlgeschlagen"
+
+#: src/window.rs:1648
+msgid "{} canceled the transfer"
+msgstr "{} hat die Übertragung abgebrochen"
+
+#: src/window.rs:1650
+msgid "Transfer canceled"
+msgstr "Übertragung abgebrochen"
+
+#: src/window.rs:1715
+msgid "Send More"
+msgstr "Mehr senden"
+
+#: src/window.rs:1721
+msgid "Files sent to {}"
+msgstr "Dateien an {} gesendet"
+
+#: src/window.rs:1723
+msgid "Sent to {}"
+msgstr "Gesendet an {}"
+
+#: src/window.rs:1741
+msgid "Message Sent"
+msgstr "Nachricht gesendet"
+
+#: src/window.rs:1742
+msgid "Message sent to {}."
+msgstr "Nachricht an {} gesendet."
+
+#: src/window.rs:1743
+msgid "Send Another"
+msgstr "Weitere senden"
+
+#: src/window.rs:1748
+msgid "Message sent to {}"
+msgstr "Nachricht an {} gesendet"
+
+#: src/window.rs:1751
+msgid "Message delivered"
+msgstr "Nachricht zugestellt"
+
+#: src/window.rs:1768
+msgid "Transfer Declined"
+msgstr "Übertragung abgelehnt"
+
+#: src/window.rs:1769
+msgid "{} declined the transfer. Nothing was sent."
+msgstr "{} hat die Übertragung abgelehnt. Es wurde nichts gesendet."
+
+#: src/window.rs:1778
+msgid "The transfer was declined"
+msgstr "Die Übertragung wurde abgelehnt"
+
+#: src/window.rs:1789
+msgid "Device Unavailable"
+msgstr "Gerät nicht verfügbar"
+
+#: src/window.rs:1790
+msgid "{}. It was removed from the device list."
+msgstr "{}. Es wurde aus der Geräteliste entfernt."
+
+#: src/window.rs:1954
+msgid "Send to {}?"
+msgstr "An {} senden?"
+
+#: src/window.rs:1962
+msgid "Later"
+msgstr "Später"
+
+#: src/window.rs:1963
+msgid "Send Now"
+msgstr "Jetzt senden"
+
+#: src/window.rs:2039
+msgid "Remove from the queue"
+msgstr "Aus der Warteschlange entfernen"
+
+#: src/window.rs:2067
+msgid "Folder"
+msgstr "Ordner"
+
+#: src/window.rs:2068
+msgid "Unavailable"
+msgstr "Nicht verfügbar"
+
+#: src/window.rs:2083
+msgid "Remove this file"
+msgstr "Diese Datei entfernen"
+
+#: src/window.rs:2287
+msgid "Waiting"
+msgstr "Wartet"
+
+#: src/window.rs:2476
+msgid "Select Files to Send"
+msgstr "Dateien zum Senden auswählen"
+
+#: src/window.rs:2510
+msgid "Select a Folder to Send"
+msgstr "Ordner zum Senden auswählen"
+
+#: src/window.rs:2547
+msgid "Add Files to the Queue"
+msgstr "Dateien zur Warteschlange hinzufügen"
+
+#: src/window.rs:2571
+msgid "Add a Folder to the Queue"
+msgstr "Ordner zur Warteschlange hinzufügen"
+
+#: src/window.rs:2642
+msgid "Paste from the clipboard"
+msgstr "Aus der Zwischenablage einfügen"
+
+#: src/window.rs:2886
+msgid "Receiving an item from {}"
+msgstr "Empfange ein Element von {}"
+
+#: src/window.rs:2888
+msgid "Receiving {} items from {}"
+msgstr "Empfange {} Elemente von {}"
+
+#: src/window.rs:2927
+msgid "Incoming from {}"
+msgstr "Eingehend von {}"
+
+#: src/window.rs:2930
+msgid "Decline"
+msgstr "Ablehnen"
+
+#: src/window.rs:2935
+msgid "Accept"
+msgstr "Annehmen"
+
+#: src/window.rs:2964
+msgid "Incoming Transfer"
+msgstr "Eingehende Übertragung"
+
+#: src/window.rs:2981
+msgid "Receiving from {}"
+msgstr "Empfange von {}"
+
+#: src/window.rs:3090
+msgid "PIN"
+msgstr "PIN"
+
+#: src/window.rs:3094
+msgid "PIN Required"
+msgstr "PIN erforderlich"
+
+#: src/window.rs:3204
+msgid "No History Yet"
+msgstr "Noch kein Verlauf"
+
+#: src/window.rs:3205
+msgid "Files and messages you receive will appear here."
+msgstr "Empfangene Dateien und Nachrichten erscheinen hier."
+
+#: src/window.rs:3299
+msgid "Send Back"
+msgstr "Zurücksenden"
+
+#: src/window.rs:3320
+msgid "A transfer is already in progress"
+msgstr "Es läuft bereits eine Übertragung"
+
+#: src/window.rs:3329
+msgid "This transfer is no longer in history"
+msgstr "Diese Übertragung ist nicht mehr im Verlauf"
+
+#: src/window.rs:3341
+msgid "There is nothing left to send back"
+msgstr "Es ist nichts mehr zum Zurücksenden vorhanden"
+
+#: src/window.rs:3447
+msgid "No longer available"
+msgstr "Nicht mehr verfügbar"
+
+#: src/window.rs:3530
+msgid "Remove from History"
+msgstr "Aus dem Verlauf entfernen"
+
+#: src/window.rs:3568
+msgid "Could Not Delete File"
+msgstr "Datei konnte nicht gelöscht werden"
+
+#: src/window.rs:3590
+msgid "Device"
+msgstr "Gerät"
+
+#: src/window.rs:3591
+msgid "Changes are announced to the network immediately."
+msgstr "Änderungen werden sofort im Netzwerk angekündigt."
+
+#: src/window.rs:3594
+msgid "Device Name"
+msgstr "Gerätename"
+
+#: src/window.rs:3621
+msgid "Device Type"
+msgstr "Gerätetyp"
+
+#: src/window.rs:3647
+msgid "Receiving Port"
+msgstr "Empfangsport"
+
+#: src/window.rs:3677
+msgid "Receiving"
+msgstr "Empfangen"
+
+#: src/window.rs:3678
+msgid "Ask the sender for these settings."
+msgstr "Der Absender muss diese Einstellungen eingeben."
+
+#: src/window.rs:3682
+msgid "PIN (optional)"
+msgstr "PIN (optional)"
+
+#: src/window.rs:3700
+msgid "Save Location"
+msgstr "Speicherort"
+
+#: src/window.rs:3714
+msgid "Choose Download Folder"
+msgstr "Download-Ordner wählen"
+
+#: src/window.rs:3733
+msgid "Encrypt Transfers"
+msgstr "Übertragungen verschlüsseln"
+
+#: src/window.rs:3750
+msgid "History"
+msgstr "Verlauf"
+
+#: src/window.rs:3753
+msgid "Cache Received Files in History"
+msgstr "Empfangene Dateien im Verlauf zwischenspeichern"
+
+#: src/window.rs:3754
+msgid "Keep cached copies of received files (up to 128 MB) so they stay available from History."
+msgstr "Behält Kopien empfangener Dateien (bis zu 128 MB), damit sie im Verlauf verfügbar bleiben."
+
+#: src/window.rs:3767
+msgid "History Cache"
+msgstr "Verlaufsspeicher"
+
+#: src/window.rs:3768
+msgid "{} used"
+msgstr "{} belegt"
+
+#: src/window.rs:3771
+msgid "Clear"
+msgstr "Leeren"
+
+#: src/window.rs:3791
+msgid "Background &amp; Tray"
+msgstr "Hintergrund &amp; Infobereich"
+
+#: src/window.rs:3798
+msgid "Run in Background"
+msgstr "Im Hintergrund ausführen"
+
+#: src/window.rs:3816
+msgid "Show Tray Icon"
+msgstr "Symbol im Infobereich anzeigen"
+
+#: src/window.rs:3817
+msgid "Needs a StatusNotifierWatcher on the desktop."
+msgstr "Benötigt einen StatusNotifierWatcher auf dem Desktop."
+
+#: src/window.rs:3833
+msgid "Start in Background"
+msgstr "Im Hintergrund starten"
+
+#: src/window.rs:3848
+msgid "Quick Save"
+msgstr "Schnellspeichern"
+
+#: src/window.rs:3865
+msgid "GNOME Files"
+msgstr "GNOME Dateien"
+
+#: src/window.rs:3871
+msgid "Send with LocalSend"
+msgstr "Mit LocalSend senden"
+
+#: src/window.rs:3872
+msgid "Show the menu item for selected files and folders."
+msgstr "Menüeintrag für ausgewählte Dateien und Ordner anzeigen."
+
+#: src/window.rs:3933
+msgid "Python Bindings Missing"
+msgstr "Python-Bindungen fehlen"
+
+#: src/window.rs:3937
+msgid "Files cannot load the menu item without the Nautilus Python bindings. Run this command, then restart Files."
+msgstr "Dateien kann den Menüeintrag ohne die Nautilus-Python-Bindungen nicht laden. Führen Sie diesen Befehl aus und starten Sie Dateien neu."
+
+#: src/window.rs:3974
+msgid "Copy Command"
+msgstr "Befehl kopieren"
+
+#: src/window.rs:4044
+msgid "Installation Failed"
+msgstr "Installation fehlgeschlagen"
+
+#: src/window.rs:4045
+msgid "Could not install the Files menu item. Make sure this directory exists and is writable:"
+msgstr "Der Menüeintrag für Dateien konnte nicht installiert werden. Stellen Sie sicher, dass dieses Verzeichnis existiert und beschreibbar ist:"
+
+#: src/window.rs:4332
+msgid "More options"
+msgstr "Weitere Optionen"
+
+#: src/window.rs:4347
+msgid "Cached copy"
+msgstr "Zwischengespeicherte Kopie"
+

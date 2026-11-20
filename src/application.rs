@@ -15,6 +15,10 @@ pub const RESOURCE_PATH: &str = "/io/github/localsend_adwaita/LocalSend";
 static OPENED_FILES: AtomicBool = AtomicBool::new(false);
 
 pub fn run() -> glib::ExitCode {
+    // Set up gettext before GTK reads the locale, so translated strings are
+    // available as soon as the first label is built.
+    crate::i18n::init();
+
     // Both the TLS server and client use the ring provider explicitly.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -123,6 +127,10 @@ pub fn run() -> glib::ExitCode {
     });
     app.add_action(&decline);
     app.set_accels_for_action("app.quit", &["<Control>q"]);
+
+    // Settings saves are coalesced, so make sure the last edit is written
+    // before the process goes away.
+    app.connect_shutdown(|_| crate::core::flush_config_save());
 
     app.run()
 }

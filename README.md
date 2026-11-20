@@ -52,17 +52,19 @@ Afterwards `flatpak update` (or GNOME Software) picks up new versions automatica
 The same release also carries a plain tarball. This one paste installs it into `~/.local`:
 
 ```sh
-mkdir -p /tmp/ls ~/.local/bin ~/.local/share/applications ~/.local/share/metainfo ~/.local/share/icons/hicolor/scalable/apps \
+mkdir -p /tmp/ls ~/.local/bin ~/.local/share/applications ~/.local/share/metainfo ~/.local/share/icons/hicolor/scalable/apps ~/.local/share/locale \
   && curl -L https://github.com/bazixv13/localsend-adwaita/releases/latest/download/localsend-adwaita-x86_64.tar.gz | tar -xz -C /tmp/ls \
   && install -m755 /tmp/ls/localsend-adwaita ~/.local/bin/ \
   && install -m644 /tmp/ls/io.github.localsend_adwaita.LocalSend.desktop ~/.local/share/applications/ \
   && install -m644 /tmp/ls/io.github.localsend_adwaita.LocalSend.metainfo.xml ~/.local/share/metainfo/ \
   && install -m644 /tmp/ls/io.github.localsend_adwaita.LocalSend.svg ~/.local/share/icons/hicolor/scalable/apps/ \
+  && (cp -r /tmp/ls/share/locale/. ~/.local/share/locale/ 2>/dev/null || true) \
   && rm -rf /tmp/ls \
   && update-desktop-database ~/.local/share/applications 2>/dev/null; localsend-adwaita
 ```
 
-`~/.local/bin` must be on your `PATH`. Uninstall by deleting those four files.
+`~/.local/bin` must be on your `PATH`. Uninstall by deleting those files and the
+installed `localsend-adwaita.mo` catalogues under `~/.local/share/locale`.
 
 ### From source (one paste)
 
@@ -180,13 +182,27 @@ cargo fmt
 cargo check --locked
 cargo test
 cargo run                       # debug build
+python3 scripts/update-po.py    # refresh the POT, merge .po files, compile .mo
+LOCALSEND_LOCALEDIR=po/locale cargo run  # preview a translation
 scripts/check-runtime.sh --fast # protocol + notification checks against a running app
 ```
+
+CI runs `cargo fmt --check`, clippy with warnings denied, the test suite, the
+translation template check and the release-metadata check on every push and
+pull request.
 
 `src/window.rs` holds the UI, `src/core.rs` the shared state and event bus,
 `src/protocol.rs` the DTOs and path sanitising, `src/server.rs` the receiver,
 `src/sender.rs` the outgoing transfers, `src/discovery.rs` multicast discovery and
 `src/tls.rs` the certificate identity.
+
+UI strings are translated with GNU gettext, which glibc already provides.
+`scripts/update-po.py` extracts every string wrapped in `t(...)` or `fmt(...)`
+into `po/localsend-adwaita.pot`, keeps `po/*.po` in sync and compiles the `.mo`
+files into `po/locale`. The app looks for catalogues next to its installation
+(`share/locale`, which covers the Flatpak and the release tarball) and in
+`/usr/share/locale`; untranslated strings fall back to English. To add a
+language, copy the POT to `po/<lang>.po`, translate it and rerun the script.
 
 ## License and attribution
 

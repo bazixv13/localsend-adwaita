@@ -29,14 +29,14 @@ pub fn initials(alias: &str) -> String {
 }
 
 /// A stable, human-scannable name for the connected interface.
-pub fn device_type_label(device_type: &str) -> &'static str {
-    match device_type {
+pub fn device_type_label(device_type: &str) -> String {
+    crate::i18n::t(match device_type {
         "mobile" => "Mobile",
         "web" => "Web browser",
         "headless" => "Headless device",
         "server" => "Server",
         _ => "Desktop",
-    }
+    })
 }
 
 pub fn device_type_icon(device_type: &str) -> &'static str {

@@ -29,6 +29,7 @@ fn status_hint(code: u16, body: &str) -> String {
         409 => " — another transfer is already in progress",
         422 => " — the file checksum did not match",
         429 => " — too many requests, try again shortly",
+        507 => " — the receiver does not have enough free space",
         _ => "",
     };
     let body = body.trim();

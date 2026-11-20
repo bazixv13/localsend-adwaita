@@ -7,7 +7,7 @@
 
 use crate::core::{Core, Event};
 use crate::net;
-use crate::protocol::{api_url, DeviceInfo, MULTICAST_IP, MULTICAST_PORT};
+use crate::protocol::{api_url, DeviceInfo, DEFAULT_PORT, MULTICAST_IP, MULTICAST_PORT};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::atomic::Ordering;
@@ -45,10 +45,36 @@ pub fn spawn(core: Arc<Core>) {
 fn probe_loop(core: Arc<Core>) {
     loop {
         thread::sleep(PROBE_INTERVAL);
-        for (key, info, ip) in core.devices_for_probe() {
-            if probe_peer(&core, &key, &info, &ip).is_err() {
-                core.mark_device_probe_failed(&key);
+        let peers = core.devices_for_probe();
+        if peers.is_empty() {
+            continue;
+        }
+        // Probe every peer at once. Sequentially, each unreachable device
+        // costs a full timeout before the next one is even tried, so one
+        // sleeping phone made every other device look stale for seconds.
+        let mut failed: Vec<String> = Vec::new();
+        thread::scope(|scope| {
+            let probes: Vec<_> = peers
+                .iter()
+                .map(|(key, info, ip)| {
+                    let core = core.clone();
+                    scope.spawn(move || {
+                        if probe_peer(&core, key, info, ip).is_err() {
+                            Some(key.clone())
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .collect();
+            for probe in probes {
+                if let Ok(Some(key)) = probe.join() {
+                    failed.push(key);
+                }
             }
+        });
+        for key in failed {
+            core.mark_device_probe_failed(&key);
         }
     }
 }
@@ -214,7 +240,10 @@ fn run(core: Arc<Core>) {
             }
         }
 
-        if announce_now || last_announce.elapsed() >= ANNOUNCE_INTERVAL {
+        if announce_now
+            || core.take_announce_request()
+            || last_announce.elapsed() >= ANNOUNCE_INTERVAL
+        {
             if let Some(sender) = sockets.sender.as_ref() {
                 announce(&core, sender);
                 announce_now = false;
@@ -377,7 +406,10 @@ pub fn scan(core: Arc<Core>) {
         return;
     }
     thread::spawn(move || {
-        let port = core.port();
+        // The sweep is a fallback for networks that drop multicast, and the
+        // protocol fixes the port every LocalSend client listens on. Using
+        // our own receiving port found nobody when it was customised.
+        let port = DEFAULT_PORT;
         let mut targets: Vec<String> = Vec::new();
         if let Ok(interfaces) = if_addrs::get_if_addrs() {
             for interface in interfaces {

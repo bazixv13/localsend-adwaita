@@ -1,0 +1,60 @@
+name: Check
+
+on:
+  push:
+    branches: [main, nightly]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Format, lints and tests
+    runs-on: ubuntu-24.04
+    # Fedora is used because the build needs GTK 4.10+ and libadwaita 1.6+,
+    # which the Ubuntu runner image does not provide.
+    container:
+      image: fedora:42
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            gtk4-devel libadwaita-devel glib2-devel gcc gcc-c++ \
+            pkgconf-pkg-config gettext tar gzip findutils
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        # Pinned to the version the crate declares as its minimum, so a newer
+        # clippy cannot fail the build with lints this code never triggered.
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.86.0"
+          components: clippy, rustfmt
+
+      - name: Cache build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lints
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --locked
+
+      - name: Translation template is current
+        run: python3 scripts/update-po.py --check
+
+      - name: Release metadata matches the crate version
+        run: python3 scripts/check-metainfo.py

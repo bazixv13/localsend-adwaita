@@ -26,7 +26,7 @@ jobs:
         run: |
           dnf install -y --setopt=install_weak_deps=False \
             gtk4-devel libadwaita-devel glib2-devel gcc gcc-c++ \
-            pkgconf-pkg-config cargo rust tar gzip
+            pkgconf-pkg-config gettext cargo rust tar gzip
 
       - name: Checkout
         uses: actions/checkout@v7
@@ -44,6 +44,13 @@ jobs:
           install -m644 data/io.github.localsend_adwaita.LocalSend.metainfo.xml "$stage/"
           install -m644 data/icons/scalable/apps/io.github.localsend_adwaita.LocalSend.svg "$stage/"
           install -m644 COPYING NOTICE README.md "$stage/"
+          # Compile the translations into the tarball's share/locale.
+          for po in po/*.po; do
+            lang=$(basename "$po" .po)
+            install -d "$stage/share/locale/$lang/LC_MESSAGES"
+            msgfmt --check "$po" \
+              -o "$stage/share/locale/$lang/LC_MESSAGES/localsend-adwaita.mo"
+          done
           # Rolling asset used by the README, contents at the archive root.
           tar -czf "localsend-adwaita-x86_64.tar.gz" -C "$stage" .
           # Versioned asset for archiving.

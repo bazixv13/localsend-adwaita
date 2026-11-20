@@ -483,7 +483,7 @@ fn sanitize_cache_name(name: &str) -> String {
 }
 
 pub fn message_bytes(text: &str) -> u64 {
-    text.as_bytes().len() as u64
+    text.len() as u64
 }
 
 pub fn make_item_id() -> String {

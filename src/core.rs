@@ -6,8 +6,71 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::sync::{Mutex, RwLock};
+use std::sync::{mpsc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
+
+/// Settings arrive keystroke by keystroke, so writes are coalesced instead of
+/// rewriting the whole JSON file for every character typed.
+const CONFIG_SAVE_DELAY: Duration = Duration::from_millis(400);
+
+enum ConfigWrite {
+    Save(Box<Config>),
+    Flush(mpsc::Sender<()>),
+}
+
+static CONFIG_WRITER: OnceLock<mpsc::Sender<ConfigWrite>> = OnceLock::new();
+
+fn config_writer() -> &'static mpsc::Sender<ConfigWrite> {
+    CONFIG_WRITER.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel::<ConfigWrite>();
+        let _ = std::thread::Builder::new()
+            .name("localsend-config".to_string())
+            .spawn(move || {
+                let mut pending: Option<Box<Config>> = None;
+                loop {
+                    let wait = if pending.is_some() {
+                        CONFIG_SAVE_DELAY
+                    } else {
+                        Duration::from_secs(30)
+                    };
+                    match receiver.recv_timeout(wait) {
+                        Ok(ConfigWrite::Save(config)) => pending = Some(config),
+                        Ok(ConfigWrite::Flush(done)) => {
+                            if let Some(config) = pending.take() {
+                                save_or_log(&config);
+                            }
+                            let _ = done.send(());
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            if let Some(config) = pending.take() {
+                                save_or_log(&config);
+                            }
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+            });
+        sender
+    })
+}
+
+fn save_or_log(config: &Config) {
+    if let Err(error) = config.save() {
+        eprintln!("Could not save settings: {error}");
+    }
+}
+
+/// Writes the latest settings right away and waits for them to land, so a
+/// pending coalesced write is never lost on quit.
+pub fn flush_config_save() {
+    let Some(writer) = CONFIG_WRITER.get() else {
+        return;
+    };
+    let (ack, done) = mpsc::channel();
+    if writer.send(ConfigWrite::Flush(ack)).is_ok() {
+        let _ = done.recv_timeout(Duration::from_secs(2));
+    }
+}
 
 #[derive(Clone)]
 pub struct Device {
@@ -199,6 +262,7 @@ pub struct Core {
     revision: AtomicU64,
     tray_active: AtomicBool,
     outgoing: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    announce_requested: AtomicBool,
 }
 
 impl Core {
@@ -236,6 +300,7 @@ impl Core {
             revision: AtomicU64::new(0),
             tray_active: AtomicBool::new(false),
             outgoing: Mutex::new(HashMap::new()),
+            announce_requested: AtomicBool::new(false),
         }
     }
 
@@ -283,10 +348,18 @@ impl Core {
             update(&mut guard);
             guard.clone()
         };
-        if let Err(error) = config.save() {
-            eprintln!("Could not save settings: {error}");
-        }
+        let _ = config_writer().send(ConfigWrite::Save(Box::new(config.clone())));
         config
+    }
+
+    /// Asks discovery to announce the current port and protocol now, for
+    /// changes that peers would otherwise only notice on the next interval.
+    pub fn request_announce(&self) {
+        self.announce_requested.store(true, Ordering::SeqCst);
+    }
+
+    pub fn take_announce_request(&self) -> bool {
+        self.announce_requested.swap(false, Ordering::SeqCst)
     }
 
     /// Whether a tray icon is currently shown. Closing the window may only
@@ -700,9 +773,11 @@ mod tests {
     #[test]
     fn removes_device_after_failed_liveness_probes() {
         let core = Core::for_test(Config::default());
-        let mut info = DeviceInfo::default();
-        info.alias = "Unreachable Device".to_string();
-        info.fingerprint = "unreachable-device-fingerprint".to_string();
+        let info = DeviceInfo {
+            alias: "Unreachable Device".to_string(),
+            fingerprint: "unreachable-device-fingerprint".to_string(),
+            ..DeviceInfo::default()
+        };
         core.upsert_device(info, "192.0.2.2".to_string());
         let key = core.devices_sorted()[0].key.clone();
 
@@ -715,9 +790,11 @@ mod tests {
     #[test]
     fn successful_probe_resets_failure_count() {
         let core = Core::for_test(Config::default());
-        let mut info = DeviceInfo::default();
-        info.alias = "Flaky Device".to_string();
-        info.fingerprint = "flaky-device-fingerprint".to_string();
+        let info = DeviceInfo {
+            alias: "Flaky Device".to_string(),
+            fingerprint: "flaky-device-fingerprint".to_string(),
+            ..DeviceInfo::default()
+        };
         core.upsert_device(info.clone(), "192.0.2.3".to_string());
         let key = core.devices_sorted()[0].key.clone();
 
@@ -730,9 +807,11 @@ mod tests {
     #[test]
     fn unreachable_device_stays_hidden_until_it_answers_again() {
         let core = Core::for_test(Config::default());
-        let mut info = DeviceInfo::default();
-        info.alias = "Refusing Device".to_string();
-        info.fingerprint = "refusing-device-fingerprint".to_string();
+        let info = DeviceInfo {
+            alias: "Refusing Device".to_string(),
+            fingerprint: "refusing-device-fingerprint".to_string(),
+            ..DeviceInfo::default()
+        };
         core.upsert_device(info.clone(), "192.0.2.4".to_string());
         let key = core.devices_sorted()[0].key.clone();
 
@@ -765,9 +844,11 @@ mod tests {
     #[test]
     fn removes_devices_that_stop_announcing() {
         let core = Core::for_test(Config::default());
-        let mut info = DeviceInfo::default();
-        info.alias = "Gone Device".to_string();
-        info.fingerprint = "gone-device-fingerprint".to_string();
+        let info = DeviceInfo {
+            alias: "Gone Device".to_string(),
+            fingerprint: "gone-device-fingerprint".to_string(),
+            ..DeviceInfo::default()
+        };
         assert!(core.upsert_device(info, "192.0.2.1".to_string()));
         assert_eq!(core.devices_sorted().len(), 1);
 

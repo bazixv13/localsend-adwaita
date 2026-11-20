@@ -47,6 +47,14 @@
   </keywords>
 
   <releases>
+    <release version="0.3.51-beta" date="2026-11-20" type="development">
+      <description>
+        <p>Translate the interface with GNU gettext, including a complete German catalogue and scripts for adding more languages.</p>
+        <p>Write received files to a .part name until they are verified, refuse transfers that do not fit on disk, and bound buffered request bodies.</p>
+        <p>Apply port, encryption and tray icon changes without restarting, and save settings once typing pauses instead of on every keystroke.</p>
+        <p>Fix the discovery fallback sweep probing the wrong port, probe nearby devices in parallel, and add a Send Back action to history entries.</p>
+      </description>
+    </release>
     <release version="0.3.50" date="2026-11-19">
       <description>
         <p>Show a dedicated progress dialog for transfers started from the GNOME Files menu item, with the current file, progress and a cancel button. Send files handed over by Files to the copy of the app that is already running, and show notifications from the Settings and History dialogs inside those dialogs.</p>
