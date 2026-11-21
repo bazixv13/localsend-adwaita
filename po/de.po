@@ -17,23 +17,23 @@ msgstr ""
 msgid "The message is empty"
 msgstr "Die Nachricht ist leer"
 
-#: src/sender.rs:71
+#: src/sender.rs:73
 msgid "The device is no longer available"
 msgstr "Das Gerät ist nicht mehr verfügbar"
 
-#: src/sender.rs:172
+#: src/sender.rs:174
 msgid "The device sent an invalid response: {}"
 msgstr "Das Gerät hat eine ungültige Antwort gesendet: {}"
 
-#: src/sender.rs:255
+#: src/sender.rs:264
 msgid "No files were selected"
 msgstr "Es wurden keine Dateien ausgewählt"
 
-#: src/sender.rs:596
+#: src/sender.rs:619
 msgid "The device is not accepting transfers"
 msgstr "Das Gerät nimmt keine Übertragungen an"
 
-#: src/sender.rs:612
+#: src/sender.rs:635
 msgid "Secure connection failed: {}"
 msgstr "Sichere Verbindung fehlgeschlagen: {}"
 
@@ -41,43 +41,43 @@ msgstr "Sichere Verbindung fehlgeschlagen: {}"
 msgid "the sender stopped responding"
 msgstr "der Absender hat nicht mehr geantwortet"
 
-#: src/server.rs:852
+#: src/server.rs:857
 msgid "The upload was interrupted"
 msgstr "Die Übertragung wurde unterbrochen"
 
-#: src/server.rs:863
+#: src/server.rs:868
 msgid "The file could not be written to disk"
 msgstr "Die Datei konnte nicht auf die Festplatte geschrieben werden"
 
-#: src/server.rs:875
+#: src/server.rs:880
 msgid "The disk is full"
 msgstr "Die Festplatte ist voll"
 
-#: src/server.rs:917
+#: src/server.rs:927
 msgid "The upload was incomplete"
 msgstr "Die Übertragung war unvollständig"
 
-#: src/server.rs:929
+#: src/server.rs:939
 msgid "A received file did not match its checksum"
 msgstr "Eine empfangene Datei stimmte nicht mit ihrer Prüfsumme überein"
 
-#: src/server.rs:942
+#: src/server.rs:952
 msgid "The file could not be saved"
 msgstr "Die Datei konnte nicht gespeichert werden"
 
-#: src/server.rs:1086
+#: src/server.rs:1096
 msgid "The message was interrupted"
 msgstr "Die Nachricht wurde unterbrochen"
 
-#: src/server.rs:1092
+#: src/server.rs:1102
 msgid "The message is too large"
 msgstr "Die Nachricht ist zu groß"
 
-#: src/server.rs:1121
+#: src/server.rs:1131
 msgid "The message was incomplete"
 msgstr "Die Nachricht war unvollständig"
 
-#: src/server.rs:1131
+#: src/server.rs:1141
 msgid "The message did not match its checksum"
 msgstr "Die Nachricht stimmte nicht mit ihrer Prüfsumme überein"
 
@@ -269,263 +269,263 @@ msgstr "Gerät nicht verfügbar"
 msgid "{}. It was removed from the device list."
 msgstr "{}. Es wurde aus der Geräteliste entfernt."
 
-#: src/window.rs:1963
+#: src/window.rs:1992
 msgid "Send to {}?"
 msgstr "An {} senden?"
 
-#: src/window.rs:1971
+#: src/window.rs:2000
 msgid "Later"
 msgstr "Später"
 
-#: src/window.rs:1972
+#: src/window.rs:2001
 msgid "Send Now"
 msgstr "Jetzt senden"
 
-#: src/window.rs:2050
+#: src/window.rs:2085
 msgid "Remove from the queue"
 msgstr "Aus der Warteschlange entfernen"
 
-#: src/window.rs:2078
+#: src/window.rs:2113
 msgid "Folder"
 msgstr "Ordner"
 
-#: src/window.rs:2079
+#: src/window.rs:2114
 msgid "Unavailable"
 msgstr "Nicht verfügbar"
 
-#: src/window.rs:2094
+#: src/window.rs:2129
 msgid "Remove this file"
 msgstr "Diese Datei entfernen"
 
-#: src/window.rs:2298
+#: src/window.rs:2333
 msgid "Waiting"
 msgstr "Wartet"
 
-#: src/window.rs:2487
+#: src/window.rs:2522
 msgid "Select Files to Send"
 msgstr "Dateien zum Senden auswählen"
 
-#: src/window.rs:2521
+#: src/window.rs:2556
 msgid "Select a Folder to Send"
 msgstr "Ordner zum Senden auswählen"
 
-#: src/window.rs:2558
+#: src/window.rs:2593
 msgid "Add Files to the Queue"
 msgstr "Dateien zur Warteschlange hinzufügen"
 
-#: src/window.rs:2582
+#: src/window.rs:2617
 msgid "Add a Folder to the Queue"
 msgstr "Ordner zur Warteschlange hinzufügen"
 
-#: src/window.rs:2653
+#: src/window.rs:2688
 msgid "Paste from the clipboard"
 msgstr "Aus der Zwischenablage einfügen"
 
-#: src/window.rs:2897
+#: src/window.rs:2932
 msgid "Receiving an item from {}"
 msgstr "Empfange ein Element von {}"
 
-#: src/window.rs:2899
+#: src/window.rs:2934
 msgid "Receiving {} items from {}"
 msgstr "Empfange {} Elemente von {}"
 
-#: src/window.rs:2939
+#: src/window.rs:2974
 msgid "Incoming from {}"
 msgstr "Eingehend von {}"
 
-#: src/window.rs:2942
+#: src/window.rs:2977
 msgid "Decline"
 msgstr "Ablehnen"
 
-#: src/window.rs:2947
+#: src/window.rs:2982
 msgid "Accept"
 msgstr "Annehmen"
 
-#: src/window.rs:2976
+#: src/window.rs:3011
 msgid "Incoming Transfer"
 msgstr "Eingehende Übertragung"
 
-#: src/window.rs:2993
+#: src/window.rs:3028
 msgid "Receiving from {}"
 msgstr "Empfange von {}"
 
-#: src/window.rs:3102
+#: src/window.rs:3137
 msgid "PIN"
 msgstr "PIN"
 
-#: src/window.rs:3106
+#: src/window.rs:3141
 msgid "PIN Required"
 msgstr "PIN erforderlich"
 
-#: src/window.rs:3216
+#: src/window.rs:3251
 msgid "No History Yet"
 msgstr "Noch kein Verlauf"
 
-#: src/window.rs:3217
+#: src/window.rs:3252
 msgid "Files and messages you receive will appear here."
 msgstr "Empfangene Dateien und Nachrichten erscheinen hier."
 
-#: src/window.rs:3311
+#: src/window.rs:3346
 msgid "Send Back"
 msgstr "Zurücksenden"
 
-#: src/window.rs:3332
+#: src/window.rs:3367
 msgid "A transfer is already in progress"
 msgstr "Es läuft bereits eine Übertragung"
 
-#: src/window.rs:3341
+#: src/window.rs:3376
 msgid "This transfer is no longer in history"
 msgstr "Diese Übertragung ist nicht mehr im Verlauf"
 
-#: src/window.rs:3353
+#: src/window.rs:3388
 msgid "There is nothing left to send back"
 msgstr "Es ist nichts mehr zum Zurücksenden vorhanden"
 
-#: src/window.rs:3459
+#: src/window.rs:3494
 msgid "No longer available"
 msgstr "Nicht mehr verfügbar"
 
-#: src/window.rs:3542
+#: src/window.rs:3577
 msgid "Remove from History"
 msgstr "Aus dem Verlauf entfernen"
 
-#: src/window.rs:3580
+#: src/window.rs:3615
 msgid "Could Not Delete File"
 msgstr "Datei konnte nicht gelöscht werden"
 
-#: src/window.rs:3602
+#: src/window.rs:3637
 msgid "Device"
 msgstr "Gerät"
 
-#: src/window.rs:3603
+#: src/window.rs:3638
 msgid "Changes are announced to the network immediately."
 msgstr "Änderungen werden sofort im Netzwerk angekündigt."
 
-#: src/window.rs:3606
+#: src/window.rs:3641
 msgid "Device Name"
 msgstr "Gerätename"
 
-#: src/window.rs:3633
+#: src/window.rs:3668
 msgid "Device Type"
 msgstr "Gerätetyp"
 
-#: src/window.rs:3659
+#: src/window.rs:3694
 msgid "Receiving Port"
 msgstr "Empfangsport"
 
-#: src/window.rs:3689
+#: src/window.rs:3724
 msgid "Receiving"
 msgstr "Empfangen"
 
-#: src/window.rs:3690
+#: src/window.rs:3725
 msgid "Ask the sender for these settings."
 msgstr "Der Absender muss diese Einstellungen eingeben."
 
-#: src/window.rs:3694
+#: src/window.rs:3729
 msgid "PIN (optional)"
 msgstr "PIN (optional)"
 
-#: src/window.rs:3712
+#: src/window.rs:3747
 msgid "Save Location"
 msgstr "Speicherort"
 
-#: src/window.rs:3726
+#: src/window.rs:3761
 msgid "Choose Download Folder"
 msgstr "Download-Ordner wählen"
 
-#: src/window.rs:3745
+#: src/window.rs:3780
 msgid "Encrypt Transfers"
 msgstr "Übertragungen verschlüsseln"
 
-#: src/window.rs:3762
+#: src/window.rs:3797
 msgid "History"
 msgstr "Verlauf"
 
-#: src/window.rs:3765
+#: src/window.rs:3800
 msgid "Cache Received Files in History"
 msgstr "Empfangene Dateien im Verlauf zwischenspeichern"
 
-#: src/window.rs:3766
+#: src/window.rs:3801
 msgid "Keep cached copies of received files (up to 128 MB) so they stay available from History."
 msgstr "Behält Kopien empfangener Dateien (bis zu 128 MB), damit sie im Verlauf verfügbar bleiben."
 
-#: src/window.rs:3779
+#: src/window.rs:3814
 msgid "History Cache"
 msgstr "Verlaufsspeicher"
 
-#: src/window.rs:3780
+#: src/window.rs:3815
 msgid "{} used"
 msgstr "{} belegt"
 
-#: src/window.rs:3783
+#: src/window.rs:3818
 msgid "Clear"
 msgstr "Leeren"
 
-#: src/window.rs:3803
+#: src/window.rs:3838
 msgid "Background &amp; Tray"
 msgstr "Hintergrund &amp; Infobereich"
 
-#: src/window.rs:3810
+#: src/window.rs:3845
 msgid "Run in Background"
 msgstr "Im Hintergrund ausführen"
 
-#: src/window.rs:3828
+#: src/window.rs:3863
 msgid "Show Tray Icon"
 msgstr "Symbol im Infobereich anzeigen"
 
-#: src/window.rs:3829
+#: src/window.rs:3864
 msgid "Needs a StatusNotifierWatcher on the desktop."
 msgstr "Benötigt einen StatusNotifierWatcher auf dem Desktop."
 
-#: src/window.rs:3855
+#: src/window.rs:3890
 msgid "No tray icon support on this desktop"
 msgstr "Keine Unterstützung für Tray-Symbole auf diesem Desktop"
 
-#: src/window.rs:3865
+#: src/window.rs:3900
 msgid "Start in Background"
 msgstr "Im Hintergrund starten"
 
-#: src/window.rs:3880
+#: src/window.rs:3915
 msgid "Quick Save"
 msgstr "Schnellspeichern"
 
-#: src/window.rs:3897
+#: src/window.rs:3932
 msgid "GNOME Files"
 msgstr "GNOME Dateien"
 
-#: src/window.rs:3903
+#: src/window.rs:3938
 msgid "Send with LocalSend"
 msgstr "Mit LocalSend senden"
 
-#: src/window.rs:3904
+#: src/window.rs:3939
 msgid "Show the menu item for selected files and folders."
 msgstr "Menüeintrag für ausgewählte Dateien und Ordner anzeigen."
 
-#: src/window.rs:3965
+#: src/window.rs:4000
 msgid "Python Bindings Missing"
 msgstr "Python-Bindungen fehlen"
 
-#: src/window.rs:3969
+#: src/window.rs:4004
 msgid "Files cannot load the menu item without the Nautilus Python bindings. Run this command, then restart Files."
 msgstr "Dateien kann den Menüeintrag ohne die Nautilus-Python-Bindungen nicht laden. Führen Sie diesen Befehl aus und starten Sie Dateien neu."
 
-#: src/window.rs:4006
+#: src/window.rs:4041
 msgid "Copy Command"
 msgstr "Befehl kopieren"
 
-#: src/window.rs:4076
+#: src/window.rs:4111
 msgid "Installation Failed"
 msgstr "Installation fehlgeschlagen"
 
-#: src/window.rs:4077
+#: src/window.rs:4112
 msgid "Could not install the Files menu item. Make sure this directory exists and is writable:"
 msgstr "Der Menüeintrag für Dateien konnte nicht installiert werden. Stellen Sie sicher, dass dieses Verzeichnis existiert und beschreibbar ist:"
 
-#: src/window.rs:4356
+#: src/window.rs:4391
 msgid "More options"
 msgstr "Weitere Optionen"
 
-#: src/window.rs:4371
+#: src/window.rs:4406
 msgid "Cached copy"
 msgstr "Zwischengespeicherte Kopie"
 
