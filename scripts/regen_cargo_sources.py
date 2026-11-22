@@ -1,119 +1,73 @@
-from pathlib import Path
+#!/usr/bin/env python3
+"""Regenerate flatpak/cargo-sources.json from Cargo.lock.
+
+The Flatpak build vendors every crates.io package up front and builds with
+`cargo --offline --locked`, so the source list has to match the lockfile
+exactly: one archive per package plus the checksum manifest the manifest's
+build commands write `.cargo-checksum.json` files from.
+"""
 import json
+import tomllib
+from pathlib import Path
 
-cargo_lock_path = Path("Cargo.lock")
+lock_path = Path("Cargo.lock")
 sources_path = Path("flatpak/cargo-sources.json")
+CRATES_IO = "registry+https://github.com/rust-lang/crates.io-index"
 
-cargo_lock_text = cargo_lock_path.read_text(encoding="utf-8")
+# Tells cargo where the vendored sources are instead of the network.
+CARGO_CONFIG = (
+    "[source.vendored-sources]\n"
+    'directory = "cargo/vendor"\n'
+    "\n"
+    "[source.crates-io]\n"
+    'replace-with = "vendored-sources"\n'
+)
+
+lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
 
 packages = []
-current = None
-current_deps = []
-in_deps = False
-for line in cargo_lock_text.splitlines():
-    if line.startswith("[[package]]"):
-        if current is not None:
-            current["dependencies"] = current_deps
-            packages.append(current)
-        current = {}
-        current_deps = []
-        in_deps = False
-    elif current is not None:
-        if "=" in line:
-            key, _, value = line.partition("=")
-            key, value = key.strip(), value.strip()
-            if key == "dependencies":
-                in_deps = True
-                current[key] = None
-            else:
-                in_deps = False
-                current[key] = value
-        elif in_deps and line.strip():
-            dep = line.strip().split()[0]
-            current_deps.append(dep)
-if current is not None:
-    current["dependencies"] = current_deps
-    packages.append(current)
+for package in lock.get("package", []):
+    if package.get("source") != CRATES_IO:
+        continue
+    name, version, checksum = package["name"], package["version"], package.get("checksum")
+    if not checksum:
+        raise SystemExit(f"{name} {version} comes from crates.io without a checksum")
+    packages.append((name, version, checksum))
 
-packages_by_name = {p["name"]: p for p in packages if "name" in p}
+packages.sort(key=lambda p: (p[0], p[1]))
 
-def is_crates_io(pkg):
-    src = pkg.get("source", "") or ""
-    return "registry+https://github.com/rust-lang/crates.io-index" in src
-
-def entry_for(name):
-    pkg = packages_by_name.get(name)
-    if not pkg or not is_crates_io(pkg):
-        return None
-    ver = pkg.get("version")
-    checksum = pkg.get("checksum")
-    if not ver or not checksum:
-        return None
-    return {
-        "name": name,
-        "version": ver,
-        "dl_path": f"https://static.crates.io/crates/{name}/{name}-{ver}.crate",
-        "hash": checksum,
-        "dest": f"cargo/vendor/{name}-{ver}",
+sources = [
+    {
+        "type": "inline",
+        "contents": CARGO_CONFIG,
+        "dest": "cargo",
+        "dest-filename": "config",
     }
+]
+for name, version, checksum in packages:
+    sources.append(
+        {
+            "type": "archive",
+            "archive-type": "tar-gzip",
+            "url": f"https://static.crates.io/crates/{name}/{name}-{version}.crate",
+            "sha256": checksum,
+            "dest": f"cargo/vendor/{name}-{version}",
+            "strip-components": 1,
+        }
+    )
+sources.append(
+    {
+        "type": "inline",
+        "contents": "".join(f"{name}-{version} {checksum}\n" for name, version, checksum in packages),
+        "dest": "cargo",
+        "dest-filename": "vendor-checksums.txt",
+    }
+)
 
-needed_names = ["ksni", "zbus", "async-io", "async-lock"]
-extra = set()
-for name in needed_names:
-    pkg = packages_by_name.get(name)
-    if not pkg:
-        continue
-    for dep in pkg.get("dependencies", []):
-        extra.add(dep)
-
-entries = []
-seen = set()
-for name in sorted(needed_names + list(extra)):
-    e = entry_for(name)
-    if not e:
-        continue
-    key = (e["name"], e["version"])
-    if key in seen:
-        continue
-    seen.add(key)
-    entries.append(e)
-
-if sources_path.exists():
-    root = json.loads(sources_path.read_text(encoding="utf-8"))
+text = json.dumps(sources, indent=4) + "\n"
+previous = sources_path.read_text(encoding="utf-8") if sources_path.exists() else ""
+if text != previous:
+    sources_path.write_text(text, encoding="utf-8")
+    print(f"Updated {sources_path}: {len(packages)} crates")
 else:
-    root = {"sources": []}
-
-if not isinstance(root, dict):
-    root = {"sources": []}
-
-existing_sources = root.get("sources") or []
-if not isinstance(existing_sources, list):
-    existing_sources = [existing_sources]
-
-# Keep existing vendored sources (and the cargo config inline source if present).
-existing_map = {}
-for item in existing_sources:
-    key = (item.get("name"), item.get("version"))
-    if key:
-        existing_map[key] = item
-
-merged_sources = []
-for item in existing_sources:
-    key = (item.get("name"), item.get("version"))
-    if key and key in existing_map:
-        existing_map.pop(key, None)
-        merged_sources.append(item)
-    else:
-        merged_sources.append(item)
-
-for e in entries:
-    key = (e["name"], e["version"])
-    if key not in existing_map:
-        merged_sources.append(e)
-
-root["sources"] = merged_sources
-sources_path.write_text(json.dumps(root, indent=2) + "\n", encoding="utf-8")
-
-print(f"Updated {sources_path}: {len(merged_sources)} sources")
-for e in merged_sources:
-    print(" -", e.get("name"), e.get("version"))
+    print(f"{sources_path} is up to date: {len(packages)} crates")
