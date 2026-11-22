@@ -7,7 +7,7 @@ use crate::protocol::{
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -400,7 +400,16 @@ fn send(
     let parallel = parallel_uploads(file_count);
     let next_file = AtomicUsize::new(0);
     let failed = Mutex::new(None::<(String, String)>);
-    let done_bytes = Arc::new(AtomicU64::new(0));
+    // A retried transfer continues where the last attempt stopped: the
+    // receiver reports how many bytes of each file it already kept, and the
+    // uploads start at that offset instead of sending the prefix again.
+    let offsets: Vec<u64> = id_for_file
+        .iter()
+        .zip(files.iter())
+        .map(|(id, file)| prepare.resume.get(id).copied().unwrap_or(0).min(file.size))
+        .collect();
+    let resumed_bytes: u64 = offsets.iter().sum();
+    let done_bytes = Arc::new(AtomicU64::new(resumed_bytes));
     let files_done = Arc::new(AtomicUsize::new(0));
 
     // Tell the UI what it is about to move before the first byte lands, so the
@@ -433,6 +442,7 @@ fn send(
                     }
                     let file = &files[index];
                     let id = &id_for_file[index];
+                    let offset = offsets[index];
                     let Some(token) = prepare.files.get(id) else {
                         // A file without a token is one the receiver already
                         // has: the upload API allows partial acceptance, so
@@ -449,13 +459,24 @@ fn send(
                         );
                         continue;
                     };
-                    let upload_url = format!(
+                    if offset >= file.size {
+                        // The receiver holds the whole file already: an earlier
+                        // attempt completed but its answer never came back.
+                        let finished = files_done.fetch_add(1, Ordering::SeqCst) + 1;
+                        let done = done_bytes.load(Ordering::SeqCst).min(total_bytes);
+                        emit_progress(&core, file, done, total_bytes, finished, file_count);
+                        continue;
+                    }
+                    let mut upload_url = format!(
                         "{}?sessionId={}&fileId={}&token={}",
                         api_url(&ip, port, protocol, "/upload"),
                         percent_encode(&session_id),
                         percent_encode(id),
                         percent_encode(token),
                     );
+                    if offset > 0 {
+                        upload_url.push_str(&format!("&offset={offset}"));
+                    }
                     let file_handle = match File::open(&file.path) {
                         Ok(handle) => handle,
                         Err(error) => {
@@ -471,6 +492,21 @@ fn send(
                             return;
                         }
                     };
+                    let mut file_handle = file_handle;
+                    if offset > 0 {
+                        if let Err(error) = file_handle.seek(SeekFrom::Start(offset)) {
+                            if let Ok(mut slot) = failed.lock() {
+                                slot.get_or_insert((
+                                    device_key.clone(),
+                                    crate::i18n::fmt(
+                                        "Could not read {}: {}",
+                                        &[&file.name, &error],
+                                    ),
+                                ));
+                            }
+                            return;
+                        }
+                    }
                     let reader = ProgressReader {
                         inner: file_handle,
                         core: core.clone(),
@@ -490,7 +526,7 @@ fn send(
                     let result = agent
                         .post(&upload_url)
                         .set("Content-Type", "application/octet-stream")
-                        .set("Content-Length", &file.size.to_string())
+                        .set("Content-Length", &(file.size - offset).to_string())
                         .send(reader);
                     if let Err(error) = result {
                         if cancel.load(Ordering::SeqCst) {
@@ -516,7 +552,8 @@ fn send(
                         }
                         return;
                     }
-                    let done = done_bytes.fetch_add(file.size, Ordering::SeqCst) + file.size;
+                    let sent = file.size - offset;
+                    let done = done_bytes.fetch_add(sent, Ordering::SeqCst) + sent;
                     let finished = files_done.fetch_add(1, Ordering::SeqCst) + 1;
                     emit_progress(
                         &core,
@@ -884,7 +921,15 @@ mod tests {
         (request_line, body, content_length.is_some(), chunked)
     }
 
-    fn mock_receiver() -> (u16, mpsc::Receiver<Vec<u8>>, thread::JoinHandle<()>) {
+    /// The mock's port, the uploads it saw (request line and body), and its
+    /// thread.
+    type MockReceiver = (
+        u16,
+        mpsc::Receiver<(String, Vec<u8>)>,
+        thread::JoinHandle<()>,
+    );
+
+    fn mock_receiver_with(prepare_body: &'static str) -> MockReceiver {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         listener.set_nonblocking(true).unwrap();
@@ -897,13 +942,11 @@ mod tests {
                     Ok((mut stream, _)) => {
                         let (request_line, body, has_length, chunked) = read_http(&mut stream);
                         if request_line.contains("/prepare-upload") {
-                            let response =
-                                r#"{"sessionId":"test-session","files":{"file-0":"test-token"}}"#;
                             write!(
                                 stream,
                                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                                response.len(),
-                                response
+                                prepare_body.len(),
+                                prepare_body
                             )
                             .unwrap();
                         } else if request_line.contains("/upload") {
@@ -915,7 +958,7 @@ mod tests {
                             assert!(request_line.contains("sessionId=test-session"));
                             assert!(request_line.contains("fileId=file-0"));
                             assert!(request_line.contains("token=test-token"));
-                            sender.send(body).unwrap();
+                            sender.send((request_line, body)).unwrap();
                             write!(
                                 stream,
                                 "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -1331,7 +1374,8 @@ mod tests {
 
     #[test]
     fn sends_a_file_over_http() {
-        let (port, uploads, server) = mock_receiver();
+        let (port, uploads, server) =
+            mock_receiver_with(r#"{"sessionId":"test-session","files":{"file-0":"test-token"}}"#);
 
         let config = Config {
             alias: "Test Sender".to_string(),
@@ -1368,10 +1412,75 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         );
 
-        let uploaded = uploads
+        let (_, uploaded) = uploads
             .recv_timeout(Duration::from_secs(10))
             .expect("the mock receiver never got the upload");
         assert_eq!(uploaded, contents);
+
+        let mut finished = false;
+        while let Ok(event) = events.try_recv() {
+            if let Event::SendFinished { files, .. } = event {
+                assert_eq!(files, 1);
+                finished = true;
+            }
+        }
+        assert!(finished, "the transfer did not report completion");
+
+        server.join().unwrap();
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    /// A retried transfer must not resend the bytes the receiver kept: the
+    /// offset from `prepare.resume` becomes the upload's `offset` and the
+    /// length of what is left.
+    #[test]
+    fn a_retry_continues_at_the_offset_the_receiver_reports() {
+        let (port, uploads, server) = mock_receiver_with(
+            r#"{"sessionId":"test-session","files":{"file-0":"test-token"},"resume":{"file-0":6}}"#,
+        );
+
+        let config = Config {
+            alias: "Test Sender".to_string(),
+            fingerprint: "self-fingerprint".to_string(),
+            encryption: false,
+            ..Config::default()
+        };
+        let core = Arc::new(Core::for_test(config));
+        let info = DeviceInfo {
+            alias: "Mock Receiver".to_string(),
+            fingerprint: "peer-fingerprint".to_string(),
+            port: Some(port),
+            protocol: Some("http".to_string()),
+            download: Some(false),
+            ..DeviceInfo::default()
+        };
+        core.upsert_device(info, "127.0.0.1".to_string());
+        let key = core.devices_sorted()[0].key.clone();
+
+        let events = core.subscribe();
+        let directory =
+            std::env::temp_dir().join(format!("localsend-resume-send-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("resume.txt");
+        let contents = b"hello from localsend".to_vec();
+        std::fs::write(&path, &contents).unwrap();
+
+        send(
+            core.clone(),
+            key,
+            vec![path],
+            None,
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        let (request_line, uploaded) = uploads
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the mock receiver never got the resumed upload");
+        assert!(
+            request_line.contains("offset=6"),
+            "the upload has no offset: {request_line}"
+        );
+        assert_eq!(uploaded, contents[6..].to_vec());
 
         let mut finished = false;
         while let Ok(event) = events.try_recv() {

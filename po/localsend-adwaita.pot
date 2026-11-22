@@ -28,11 +28,11 @@ msgstr ""
 msgid "No files were selected"
 msgstr ""
 
-#: src/sender.rs:619
+#: src/sender.rs:656
 msgid "The device is not accepting transfers"
 msgstr ""
 
-#: src/sender.rs:635
+#: src/sender.rs:672
 msgid "Secure connection failed: {}"
 msgstr ""
 

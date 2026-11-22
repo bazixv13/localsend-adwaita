@@ -29,11 +29,11 @@ msgstr "Das Gerät hat eine ungültige Antwort gesendet: {}"
 msgid "No files were selected"
 msgstr "Es wurden keine Dateien ausgewählt"
 
-#: src/sender.rs:619
+#: src/sender.rs:656
 msgid "The device is not accepting transfers"
 msgstr "Das Gerät nimmt keine Übertragungen an"
 
-#: src/sender.rs:635
+#: src/sender.rs:672
 msgid "Secure connection failed: {}"
 msgstr "Sichere Verbindung fehlgeschlagen: {}"
 
