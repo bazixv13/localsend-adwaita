@@ -44,7 +44,7 @@ pub fn load_or_create() -> Result<Identity, String> {
     let certified = rcgen::generate_simple_self_signed(vec!["localsend.local".to_string()])
         .map_err(|e| format!("Could not generate certificate: {e}"))?;
     let cert_der = certified.cert.der().to_vec();
-    let key_der = certified.key_pair.serialize_der();
+    let key_der = certified.signing_key.serialize_der();
 
     fs::write(&cert_path, &cert_der)
         .map_err(|e| format!("Could not write {}: {e}", cert_path.display()))?;

@@ -988,7 +988,7 @@ mod tests {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let certified = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
         let cert_der = certified.cert.der().to_vec();
-        let key_der = certified.key_pair.serialize_der();
+        let key_der = certified.signing_key.serialize_der();
         let fingerprint = crate::tls::sha256_hex(&cert_der);
         let receiver_identity = Arc::new(crate::tls::Identity {
             cert_der,
@@ -999,7 +999,7 @@ mod tests {
         let sender_certified =
             rcgen::generate_simple_self_signed(vec!["sender.local".to_string()]).unwrap();
         let sender_cert_der = sender_certified.cert.der().to_vec();
-        let sender_key_der = sender_certified.key_pair.serialize_der();
+        let sender_key_der = sender_certified.signing_key.serialize_der();
         let sender_fingerprint = crate::tls::sha256_hex(&sender_cert_der);
         let sender_identity = Arc::new(crate::tls::Identity {
             cert_der: sender_cert_der,
@@ -1138,7 +1138,7 @@ mod tests {
         let certified =
             rcgen::generate_simple_self_signed(vec!["interop.local".to_string()]).unwrap();
         let cert_der = certified.cert.der().to_vec();
-        let key_der = certified.key_pair.serialize_der();
+        let key_der = certified.signing_key.serialize_der();
         let identity = Arc::new(crate::tls::Identity {
             fingerprint: crate::tls::sha256_hex(&cert_der),
             cert_der,

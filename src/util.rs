@@ -1,4 +1,4 @@
-use rand::RngCore;
+use rand::Rng;
 
 pub fn human_bytes(bytes: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
@@ -60,6 +60,6 @@ pub fn to_hex(bytes: &[u8]) -> String {
 
 pub fn random_hex(bytes: usize) -> String {
     let mut buffer = vec![0u8; bytes];
-    rand::thread_rng().fill_bytes(&mut buffer);
+    rand::rng().fill_bytes(&mut buffer);
     to_hex(&buffer)
 }
