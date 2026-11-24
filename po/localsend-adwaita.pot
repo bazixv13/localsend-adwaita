@@ -84,15 +84,15 @@ msgstr ""
 msgid "The message did not match its checksum"
 msgstr ""
 
-#: src/tray.rs:59
+#: src/tray.rs:62
 msgid "Hide LocalSend"
 msgstr ""
 
-#: src/tray.rs:61
+#: src/tray.rs:64
 msgid "Show LocalSend"
 msgstr ""
 
-#: src/tray.rs:75
+#: src/tray.rs:78
 msgid "Quit"
 msgstr ""
 
