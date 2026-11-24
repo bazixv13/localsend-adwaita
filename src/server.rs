@@ -1552,6 +1552,114 @@ mod tests {
         let _ = std::fs::remove_dir_all(&directory);
     }
 
+    /// Sends one prepare-upload from `ip` with `pin`, so the tests exercise
+    /// the route instead of the limiter helpers directly.
+    async fn pin_attempt(app: &Router, ip: std::net::Ipv4Addr, pin: &str) -> StatusCode {
+        let body = json!({
+            "info": {
+                "alias": "Mock Sender",
+                "version": "2.2",
+                "deviceType": "desktop",
+                "fingerprint": "peer-pin-fingerprint",
+                "port": 4444,
+                "protocol": "http",
+                "download": false
+            },
+            "files": {}
+        })
+        .to_string();
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/api/localsend/v2/prepare-upload?pin={pin}"))
+            .header("content-type", "application/json")
+            .extension(ConnectInfo::<SocketAddr>(SocketAddr::from((ip, 4444))))
+            .body(Body::from(body))
+            .unwrap();
+        app.clone().oneshot(request).await.unwrap().status()
+    }
+
+    #[tokio::test]
+    async fn refuses_pin_guesses_after_five_failures_from_one_address() {
+        // The failure map is process-wide, so every test gets its own address
+        // and clears it first to stay deterministic under parallel runs.
+        let attacker = std::net::Ipv4Addr::new(198, 51, 100, 7);
+        let stranger = std::net::Ipv4Addr::new(198, 51, 100, 8);
+        let recovering = std::net::Ipv4Addr::new(198, 51, 100, 9);
+        let expired = std::net::Ipv4Addr::new(198, 51, 100, 10);
+        for ip in [attacker, stranger, recovering, expired] {
+            PIN_FAILURES
+                .lock()
+                .unwrap()
+                .remove(&std::net::IpAddr::V4(ip));
+        }
+
+        let config = Config {
+            alias: "Test Receiver".to_string(),
+            fingerprint: "self-test-fingerprint".to_string(),
+            encryption: false,
+            pin: "1234".to_string(),
+            ..Config::default()
+        };
+        let core = Arc::new(Core::for_test(config));
+        let app = router(core);
+
+        for _ in 0..PIN_MAX_FAILURES {
+            assert_eq!(
+                pin_attempt(&app, attacker, "0000").await,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+        assert_eq!(
+            pin_attempt(&app, attacker, "0000").await,
+            StatusCode::TOO_MANY_REQUESTS,
+            "the sixth guess in a minute must be throttled"
+        );
+        assert_eq!(
+            pin_attempt(&app, attacker, "1234").await,
+            StatusCode::TOO_MANY_REQUESTS,
+            "the right PIN must not shorten the lockout"
+        );
+
+        assert_eq!(
+            pin_attempt(&app, stranger, "1234").await,
+            StatusCode::NO_CONTENT,
+            "one address guessing must not lock out the others",
+        );
+
+        // A success clears the failures, so the budget starts over.
+        for _ in 0..PIN_MAX_FAILURES - 1 {
+            assert_eq!(
+                pin_attempt(&app, recovering, "0000").await,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+        assert_eq!(
+            pin_attempt(&app, recovering, "1234").await,
+            StatusCode::NO_CONTENT
+        );
+        assert!(
+            !PIN_FAILURES
+                .lock()
+                .unwrap()
+                .contains_key(&std::net::IpAddr::V4(recovering)),
+            "an accepted PIN must reset the counter"
+        );
+
+        // Failures older than the window are forgotten rather than counted.
+        PIN_FAILURES.lock().unwrap().insert(
+            std::net::IpAddr::V4(expired),
+            (
+                PIN_MAX_FAILURES,
+                Instant::now() - PIN_WINDOW - Duration::from_secs(1),
+            ),
+        );
+        assert_eq!(
+            pin_attempt(&app, expired, "1234").await,
+            StatusCode::NO_CONTENT,
+            "the lockout must expire with its window"
+        );
+    }
+
     #[tokio::test]
     async fn accepts_but_does_not_request_files_it_already_has() {
         let directory =
