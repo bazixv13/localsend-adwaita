@@ -1,0 +1,94 @@
+name: Nightly
+
+# Compiles the default branch once a night. Pushes and pull requests are
+# already covered by build.yml, so this job exists to catch the cases where
+# nothing was pushed: a Fedora image that no longer carries the right GTK or
+# libadwaita, a Rust release that stops accepting the source, a crate that
+# disappears from the registry. A broken build is then reported on a quiet day
+# instead of surprising the next commit.
+#
+# The compile is skipped when the head commit already compiled here, which
+# keeps a week without pushes down to a cheap API call per night.
+on:
+  schedule:
+    # 02:23 UTC, off the hour so the job does not queue behind the jobs that
+    # every repository schedules at midnight.
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Reading the previous runs of this workflow to decide whether to compile.
+  actions: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    name: Nightly compile
+    runs-on: ubuntu-24.04
+    # The same Fedora container build.yml uses: the Ubuntu runner image does
+    # not provide GTK 4.10+ and libadwaita 1.6+, which this crate requires.
+    container:
+      image: fedora:42
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            gtk4-devel libadwaita-devel glib2-devel gcc gcc-c++ \
+            pkgconf-pkg-config gettext tar gzip gh
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check whether this commit was already compiled
+        id: revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          runs="repos/${GITHUB_REPOSITORY}/actions/workflows/nightly.yml/runs"
+          # An API error is treated as "not compiled yet": compiling an
+          # unchanged commit costs a few minutes, guessing that it is fine
+          # would defeat the point of the job.
+          last=$(gh api "${runs}?branch=${GITHUB_REF_NAME}&status=success&per_page=1" \
+            --jq '.workflow_runs[0].head_sha // ""' 2>/dev/null || true)
+          if [[ "$last" == "$GITHUB_SHA" ]]; then
+            echo "$GITHUB_SHA already compiled successfully, nothing to do tonight."
+            echo "compile=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Compiling $GITHUB_SHA (last compiled commit: ${last:-none})."
+            echo "compile=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Rust
+        if: steps.revision.outputs.compile == 'true'
+        # The crate's declared minimum, so the nightly is compiled by the
+        # toolchain the project supports rather than whatever is newest.
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.86.0"
+
+      - name: Cache build artifacts
+        if: steps.revision.outputs.compile == 'true'
+        uses: Swatinem/rust-cache@v2
+
+      - name: Compile
+        if: steps.revision.outputs.compile == 'true'
+        run: cargo build --release --locked
+
+      - name: Check the binary links against what the image ships
+        if: steps.revision.outputs.compile == 'true'
+        run: |
+          binary=target/release/localsend-adwaita
+          test -x "$binary"
+          size=$(stat --format=%s "$binary")
+          echo "Built $binary ($((size / 1024 / 1024)) MiB)."
+          # A release build can succeed and still not run when GTK, libadwaita
+          # or a soname moved. `ldd` also exits 0 with "not found" lines, so the
+          # output itself has to be checked.
+          if ldd "$binary" | grep "not found"; then
+            echo "::error::the release binary needs libraries this image does not provide"
+            exit 1
+          fi
