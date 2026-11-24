@@ -1020,6 +1020,7 @@ mod tests {
             encryption: true,
             port: 0,
             download_dir: receive_dir.clone(),
+            quick_save: true,
             ..Config::default()
         };
         let receiver_core = Arc::new(Core::for_test_with_identity(
@@ -1054,6 +1055,7 @@ mod tests {
             alias: "TLS Sender".to_string(),
             fingerprint: "sender-http-fingerprint".to_string(),
             encryption: false,
+            quick_save: true,
             ..Config::default()
         };
         let sender_core = Arc::new(Core::for_test_with_identity(
@@ -1146,6 +1148,7 @@ mod tests {
         });
 
         let config = Config {
+            quick_save: true,
             alias: "LocalSend Adwaita".to_string(),
             fingerprint: "interop-http-fingerprint".to_string(),
             encryption: false,
@@ -1199,6 +1202,7 @@ mod tests {
 
     fn text_sender_core(port: u16) -> (Arc<Core>, String) {
         let config = Config {
+            quick_save: true,
             alias: "Text Sender".to_string(),
             fingerprint: "text-sender-self".to_string(),
             encryption: false,
@@ -1378,6 +1382,7 @@ mod tests {
             mock_receiver_with(r#"{"sessionId":"test-session","files":{"file-0":"test-token"}}"#);
 
         let config = Config {
+            quick_save: true,
             alias: "Test Sender".to_string(),
             fingerprint: "self-fingerprint".to_string(),
             encryption: false,
@@ -1440,6 +1445,7 @@ mod tests {
         );
 
         let config = Config {
+            quick_save: true,
             alias: "Test Sender".to_string(),
             fingerprint: "self-fingerprint".to_string(),
             encryption: false,
@@ -1543,6 +1549,7 @@ mod tests {
         });
 
         let config = Config {
+            quick_save: true,
             alias: "Parallel Sender".to_string(),
             fingerprint: "parallel-self".to_string(),
             encryption: false,
@@ -1633,6 +1640,7 @@ mod tests {
         });
 
         let config = Config {
+            quick_save: true,
             alias: "Bounds Sender".to_string(),
             fingerprint: "bounds-self".to_string(),
             encryption: false,

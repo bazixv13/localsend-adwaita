@@ -442,14 +442,13 @@ impl Core {
         if self.is_own_fingerprint(&info.fingerprint) {
             return false;
         }
-        if info.alias.trim().is_empty() {
+        info.alias = crate::protocol::clean_alias(&info.alias);
+        if info.alias.is_empty() {
             info.alias = if ip.is_empty() {
                 "Unknown device".to_string()
             } else {
                 ip.clone()
             };
-        } else {
-            info.alias = info.alias.trim().to_string();
         }
         info.port = Some(info.port_or_default());
         info.protocol = Some(info.protocol().to_string());
@@ -790,6 +789,7 @@ mod tests {
     fn the_fingerprint_does_not_depend_on_the_protocol() {
         let core = Core::for_test(Config {
             fingerprint: "stable-config-fingerprint".to_string(),
+            quick_save: true,
             ..Config::default()
         });
         core.set_server(53317, "http");
