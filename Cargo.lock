@@ -1216,7 +1216,7 @@ checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
 name = "localsend-adwaita"
-version = "0.3.53-beta"
+version = "0.3.53"
 dependencies = [
  "async-channel",
  "async-io",

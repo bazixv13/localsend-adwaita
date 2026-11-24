@@ -47,7 +47,7 @@
   </keywords>
 
   <releases>
-    <release version="0.3.53-beta" date="2026-11-22" type="development">
+    <release version="0.3.53" date="2026-11-24">
       <description>
         <p>Resume an interrupted file transfer from the bytes the receiver already kept, instead of sending the whole file again.</p>
       </description>
