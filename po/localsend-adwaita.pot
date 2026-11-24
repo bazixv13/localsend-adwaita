@@ -40,43 +40,47 @@ msgstr ""
 msgid "the sender stopped responding"
 msgstr ""
 
-#: src/server.rs:857
+#: src/server.rs:894
 msgid "The upload was interrupted"
 msgstr ""
 
-#: src/server.rs:868
+#: src/server.rs:907
+msgid "The sender sent more data than it announced"
+msgstr ""
+
+#: src/server.rs:917
 msgid "The file could not be written to disk"
 msgstr ""
 
-#: src/server.rs:880
+#: src/server.rs:929
 msgid "The disk is full"
 msgstr ""
 
-#: src/server.rs:927
+#: src/server.rs:976
 msgid "The upload was incomplete"
 msgstr ""
 
-#: src/server.rs:939
+#: src/server.rs:988
 msgid "A received file did not match its checksum"
 msgstr ""
 
-#: src/server.rs:952
+#: src/server.rs:1001
 msgid "The file could not be saved"
 msgstr ""
 
-#: src/server.rs:1096
+#: src/server.rs:1145
 msgid "The message was interrupted"
 msgstr ""
 
-#: src/server.rs:1102
+#: src/server.rs:1151
 msgid "The message is too large"
 msgstr ""
 
-#: src/server.rs:1131
+#: src/server.rs:1180
 msgid "The message was incomplete"
 msgstr ""
 
-#: src/server.rs:1141
+#: src/server.rs:1190
 msgid "The message did not match its checksum"
 msgstr ""
 

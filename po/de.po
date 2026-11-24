@@ -41,43 +41,47 @@ msgstr "Sichere Verbindung fehlgeschlagen: {}"
 msgid "the sender stopped responding"
 msgstr "der Absender hat nicht mehr geantwortet"
 
-#: src/server.rs:857
+#: src/server.rs:894
 msgid "The upload was interrupted"
 msgstr "Die Übertragung wurde unterbrochen"
 
-#: src/server.rs:868
+#: src/server.rs:907
+msgid "The sender sent more data than it announced"
+msgstr ""
+
+#: src/server.rs:917
 msgid "The file could not be written to disk"
 msgstr "Die Datei konnte nicht auf die Festplatte geschrieben werden"
 
-#: src/server.rs:880
+#: src/server.rs:929
 msgid "The disk is full"
 msgstr "Die Festplatte ist voll"
 
-#: src/server.rs:927
+#: src/server.rs:976
 msgid "The upload was incomplete"
 msgstr "Die Übertragung war unvollständig"
 
-#: src/server.rs:939
+#: src/server.rs:988
 msgid "A received file did not match its checksum"
 msgstr "Eine empfangene Datei stimmte nicht mit ihrer Prüfsumme überein"
 
-#: src/server.rs:952
+#: src/server.rs:1001
 msgid "The file could not be saved"
 msgstr "Die Datei konnte nicht gespeichert werden"
 
-#: src/server.rs:1096
+#: src/server.rs:1145
 msgid "The message was interrupted"
 msgstr "Die Nachricht wurde unterbrochen"
 
-#: src/server.rs:1102
+#: src/server.rs:1151
 msgid "The message is too large"
 msgstr "Die Nachricht ist zu groß"
 
-#: src/server.rs:1131
+#: src/server.rs:1180
 msgid "The message was incomplete"
 msgstr "Die Nachricht war unvollständig"
 
-#: src/server.rs:1141
+#: src/server.rs:1190
 msgid "The message did not match its checksum"
 msgstr "Die Nachricht stimmte nicht mit ihrer Prüfsumme überein"
 
