@@ -324,6 +324,37 @@ async fn info(State(core): State<Arc<Core>>) -> Response {
     json_response(StatusCode::OK, &core.info(None))
 }
 
+const PIN_MAX_FAILURES: u32 = 5;
+const PIN_WINDOW: Duration = Duration::from_secs(60);
+static PIN_FAILURES: std::sync::LazyLock<
+    std::sync::Mutex<HashMap<std::net::IpAddr, (u32, Instant)>>,
+> = std::sync::LazyLock::new(Default::default);
+
+fn pin_locked_out(ip: std::net::IpAddr) -> bool {
+    let mut failures = PIN_FAILURES.lock().unwrap();
+    match failures.get(&ip) {
+        Some((count, since)) if since.elapsed() < PIN_WINDOW => *count >= PIN_MAX_FAILURES,
+        Some(_) => {
+            failures.remove(&ip);
+            false
+        }
+        None => false,
+    }
+}
+
+fn pin_failed(ip: std::net::IpAddr) {
+    let mut failures = PIN_FAILURES.lock().unwrap();
+    let entry = failures.entry(ip).or_insert((0, Instant::now()));
+    if entry.1.elapsed() >= PIN_WINDOW {
+        *entry = (0, Instant::now());
+    }
+    entry.0 += 1;
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 async fn prepare_upload(
     State(core): State<Arc<Core>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -336,10 +367,15 @@ async fn prepare_upload(
 
     let config = core.config();
     if config.pin_required() {
-        let provided = query.get("pin").cloned().unwrap_or_default();
-        if provided != config.pin {
+        if pin_locked_out(peer.ip()) {
+            return StatusCode::TOO_MANY_REQUESTS.into_response();
+        }
+        let provided = query.get("pin").map(String::as_str).unwrap_or_default();
+        if !constant_time_eq(provided.as_bytes(), config.pin.as_bytes()) {
+            pin_failed(peer.ip());
             return StatusCode::UNAUTHORIZED.into_response();
         }
+        PIN_FAILURES.lock().unwrap().remove(&peer.ip());
     }
 
     if request.files.is_empty() {
@@ -423,10 +459,11 @@ async fn prepare_upload(
     }
     files.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let peer_alias = if request.info.alias.trim().is_empty() {
+    let cleaned_alias = crate::protocol::clean_alias(&request.info.alias);
+    let peer_alias = if cleaned_alias.is_empty() {
         peer.ip().to_string()
     } else {
-        request.info.alias.clone()
+        cleaned_alias
     };
     let (decision_tx, decision_rx) = tokio::sync::oneshot::channel();
     core.emit(Event::IncomingRequest(IncomingRequest {
@@ -859,6 +896,18 @@ async fn upload(
                 return StatusCode::BAD_REQUEST.into_response();
             }
         };
+        if received.saturating_add(chunk.len() as u64) > file.size {
+            // The sender announced a size in prepare-upload; more data than that
+            // would let it fill the disk past what the receiver agreed to.
+            drop(output);
+            let _ = tokio::fs::remove_file(&target.temp).await;
+            fail_session(
+                &core,
+                &session,
+                &crate::i18n::t("The sender sent more data than it announced"),
+            );
+            return StatusCode::PAYLOAD_TOO_LARGE.into_response();
+        }
         if let Err(error) = output.write_all(&chunk).await {
             eprintln!("Write failed for {}: {error}", target.path.display());
             drop(output);
@@ -1371,7 +1420,13 @@ fn partial_path(path: &Path) -> PathBuf {
 /// Free bytes on the filesystem holding `path`, so a transfer that cannot fit
 /// is refused before any data is written.
 fn available_space(path: &Path) -> Option<u64> {
-    let path = CString::new(path.as_os_str().as_bytes()).ok()?;
+    // The save folder may not exist yet on the first receive. Measure the
+    // nearest existing parent so the pre-check is not silently skipped.
+    let mut probe = path;
+    while !probe.exists() {
+        probe = probe.parent()?;
+    }
+    let path = CString::new(probe.as_os_str().as_bytes()).ok()?;
     // SAFETY: statvfs only writes into the struct that is handed to it, and
     // `path` is a valid NUL-terminated string for the duration of the call.
     let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
@@ -1477,7 +1532,7 @@ mod tests {
     fn reads_the_free_space_of_a_real_directory() {
         let free = available_space(&std::env::temp_dir()).expect("statvfs failed");
         assert!(free > 0, "a temp directory should have some space");
-        assert!(available_space(Path::new("/this/path/does/not/exist")).is_none());
+        assert!(available_space(&std::env::temp_dir().join("localsend-no-such-dir")).is_some());
     }
 
     #[test]
@@ -1495,6 +1550,114 @@ mod tests {
         assert!(!existing_file_matches(&path, 5, &"0".repeat(64)));
         assert!(!existing_file_matches(&directory, 5, &digest));
         let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    /// Sends one prepare-upload from `ip` with `pin`, so the tests exercise
+    /// the route instead of the limiter helpers directly.
+    async fn pin_attempt(app: &Router, ip: std::net::Ipv4Addr, pin: &str) -> StatusCode {
+        let body = json!({
+            "info": {
+                "alias": "Mock Sender",
+                "version": "2.2",
+                "deviceType": "desktop",
+                "fingerprint": "peer-pin-fingerprint",
+                "port": 4444,
+                "protocol": "http",
+                "download": false
+            },
+            "files": {}
+        })
+        .to_string();
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/api/localsend/v2/prepare-upload?pin={pin}"))
+            .header("content-type", "application/json")
+            .extension(ConnectInfo::<SocketAddr>(SocketAddr::from((ip, 4444))))
+            .body(Body::from(body))
+            .unwrap();
+        app.clone().oneshot(request).await.unwrap().status()
+    }
+
+    #[tokio::test]
+    async fn refuses_pin_guesses_after_five_failures_from_one_address() {
+        // The failure map is process-wide, so every test gets its own address
+        // and clears it first to stay deterministic under parallel runs.
+        let attacker = std::net::Ipv4Addr::new(198, 51, 100, 7);
+        let stranger = std::net::Ipv4Addr::new(198, 51, 100, 8);
+        let recovering = std::net::Ipv4Addr::new(198, 51, 100, 9);
+        let expired = std::net::Ipv4Addr::new(198, 51, 100, 10);
+        for ip in [attacker, stranger, recovering, expired] {
+            PIN_FAILURES
+                .lock()
+                .unwrap()
+                .remove(&std::net::IpAddr::V4(ip));
+        }
+
+        let config = Config {
+            alias: "Test Receiver".to_string(),
+            fingerprint: "self-test-fingerprint".to_string(),
+            encryption: false,
+            pin: "1234".to_string(),
+            ..Config::default()
+        };
+        let core = Arc::new(Core::for_test(config));
+        let app = router(core);
+
+        for _ in 0..PIN_MAX_FAILURES {
+            assert_eq!(
+                pin_attempt(&app, attacker, "0000").await,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+        assert_eq!(
+            pin_attempt(&app, attacker, "0000").await,
+            StatusCode::TOO_MANY_REQUESTS,
+            "the sixth guess in a minute must be throttled"
+        );
+        assert_eq!(
+            pin_attempt(&app, attacker, "1234").await,
+            StatusCode::TOO_MANY_REQUESTS,
+            "the right PIN must not shorten the lockout"
+        );
+
+        assert_eq!(
+            pin_attempt(&app, stranger, "1234").await,
+            StatusCode::NO_CONTENT,
+            "one address guessing must not lock out the others",
+        );
+
+        // A success clears the failures, so the budget starts over.
+        for _ in 0..PIN_MAX_FAILURES - 1 {
+            assert_eq!(
+                pin_attempt(&app, recovering, "0000").await,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+        assert_eq!(
+            pin_attempt(&app, recovering, "1234").await,
+            StatusCode::NO_CONTENT
+        );
+        assert!(
+            !PIN_FAILURES
+                .lock()
+                .unwrap()
+                .contains_key(&std::net::IpAddr::V4(recovering)),
+            "an accepted PIN must reset the counter"
+        );
+
+        // Failures older than the window are forgotten rather than counted.
+        PIN_FAILURES.lock().unwrap().insert(
+            std::net::IpAddr::V4(expired),
+            (
+                PIN_MAX_FAILURES,
+                Instant::now() - PIN_WINDOW - Duration::from_secs(1),
+            ),
+        );
+        assert_eq!(
+            pin_attempt(&app, expired, "1234").await,
+            StatusCode::NO_CONTENT,
+            "the lockout must expire with its window"
+        );
     }
 
     #[tokio::test]
@@ -1586,6 +1749,7 @@ mod tests {
             fingerprint: "self-test-fingerprint".to_string(),
             encryption: false,
             download_dir: directory.clone(),
+            quick_save: true,
             ..Config::default()
         };
         let core = Arc::new(Core::for_test(config));
@@ -1788,6 +1952,7 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
 
         let config = Config {
+            quick_save: true,
             alias: "Test Receiver".to_string(),
             fingerprint: "self-test-fingerprint".to_string(),
             encryption: false,
@@ -1888,6 +2053,7 @@ mod tests {
 
     fn text_test_core(directory: &Path) -> Arc<Core> {
         let config = Config {
+            quick_save: true,
             alias: "Test Receiver".to_string(),
             fingerprint: "self-test-fingerprint".to_string(),
             encryption: false,
