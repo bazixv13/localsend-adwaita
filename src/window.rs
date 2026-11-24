@@ -2018,7 +2018,7 @@ impl Ui {
         let mut texts = 0;
         for item in self.queue.borrow().iter() {
             match item {
-                QueueItem::Files { .. } => files += 1,
+                QueueItem::Files { paths, .. } => files += paths.len(),
                 QueueItem::Text { .. } => texts += 1,
             }
         }
@@ -3914,7 +3914,7 @@ impl Ui {
         let quick_row = adw::SwitchRow::builder()
             .title(t("Quick Save"))
             .subtitle(
-                "Receiving never asks for confirmation, so transfers are always accepted. Quick Save keeps the window closed and reports progress through notifications.",
+                "Accept incoming transfers right away and keep the window closed, with progress in notifications. Turn off to approve each transfer first.",
             )
             .build();
         quick_row.set_active(config.quick_save);

@@ -23,8 +23,8 @@ pub struct Config {
     /// Show a system tray icon. The icon is only shown when a
     /// StatusNotifierWatcher is available on the session bus.
     pub tray_icon: bool,
-    /// Store incoming transfers without opening the window. Receiving never
-    /// asks for confirmation, so this only decides whether the window pops up.
+    /// Accept incoming transfers immediately without opening the window. When
+    /// off, each transfer waits for the user to accept or decline.
     pub quick_save: bool,
     /// Keep cached copies of received files in history for quick access.
     pub history_cache: bool,
@@ -48,7 +48,7 @@ impl Default for Config {
             fingerprint: String::new(),
             run_in_background: true,
             tray_icon: true,
-            quick_save: true,
+            quick_save: false,
             history_cache: true,
             start_in_background: false,
             files_integration: true,

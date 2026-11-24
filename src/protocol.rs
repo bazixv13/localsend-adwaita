@@ -72,6 +72,22 @@ pub fn normalized_device_type(value: Option<&str>) -> &'static str {
     }
 }
 
+/// Longest device name the UI has to lay out.
+pub const MAX_ALIAS_CHARS: usize = 64;
+
+/// A peer-supplied device name made safe to show: control characters
+/// removed, trimmed and cut to `MAX_ALIAS_CHARS`. An announced 180 character
+/// name pushed the window wider than the screen.
+pub fn clean_alias(alias: &str) -> String {
+    alias
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_ALIAS_CHARS)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
 /// LocalSend sends chat messages as pseudo-files whose `fileType` is `text`.
 /// The message itself is carried in `preview` (or, for older peers, the upload
 /// body), so it must never be treated as a path on disk.
@@ -206,6 +222,17 @@ pub fn sanitize_relative_path(name: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cleans_peer_aliases() {
+        assert_eq!(clean_alias("  Pixel 8 \n"), "Pixel 8");
+        assert_eq!(clean_alias("a\u{7}b"), "ab");
+        assert_eq!(
+            clean_alias(&"W".repeat(500)).chars().count(),
+            MAX_ALIAS_CHARS
+        );
+        assert_eq!(clean_alias("\u{7}\n"), "");
+    }
 
     #[test]
     fn sanitizes_file_names() {
