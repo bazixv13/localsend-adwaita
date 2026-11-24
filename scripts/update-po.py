@@ -6,6 +6,10 @@ Extracts every string wrapped in `t(...)`, `fmt(...)` or `np(...)` and writes
 translations; new strings are appended with an empty msgstr. `np()` calls carry
 a singular and a plural form, which become a `msgid_plural` entry.
 
+References name the source file only, not the line. A line number changes
+whenever anything above a string moves, which made `--check` fail on edits that
+touched no text at all.
+
 Usage:
     scripts/update-po.py            # regenerate the POT and compile .mo files
     scripts/update-po.py --check    # fail if the POT on disk is stale (CI)
@@ -91,7 +95,7 @@ def collect():
                     if not msgid:
                         continue
                     seen.setdefault(
-                        msgid, {"ref": f"{path.relative_to(ROOT)}:{number}", "plural": None}
+                        msgid, {"ref": str(path.relative_to(ROOT)), "plural": None}
                     )
             for match in PLURAL_PATTERN.finditer(line):
                 msgid = unescape(match.group(1))
@@ -99,7 +103,7 @@ def collect():
                 if not msgid or not plural:
                     continue
                 entry = seen.setdefault(
-                    msgid, {"ref": f"{path.relative_to(ROOT)}:{number}", "plural": None}
+                    msgid, {"ref": str(path.relative_to(ROOT)), "plural": None}
                 )
                 entry["plural"] = plural
     return seen
