@@ -101,15 +101,43 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
 
+      # A version bump on main used to sit untagged until someone pushed a tag
+      # by hand. The Flatpak repo follows tags, so it kept offering the old
+      # version until that happened. Tag and release whatever Cargo.toml now
+      # says, once. A tag pushed with GITHUB_TOKEN cannot start the tag
+      # workflows, which is why the Flatpak workflow attaches its bundle from
+      # its own main run instead of relying on the tag build.
+      - name: Release a new version on main
+        id: main-release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          tag="v${version}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "${tag} is already released; leaving it alone."
+            exit 0
+          fi
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "${version}" \
+            --generate-notes \
+            dist/*.tar.gz
+          echo "released=true" >> "$GITHUB_OUTPUT"
+          echo "Released ${tag}."
+
       # The Flatpak repo rebuilds on a six-hour schedule. This asks it to
       # rebuild now, so a fresh tag reaches `flatpak update` in a minute.
       # GITHUB_TOKEN cannot write to another repository, so the job needs a
       # token with access to bazixv13/flatpak-repo in FLATPAK_REPO_TOKEN;
       # without it the scheduled run picks the release up instead.
       - name: Ask the Flatpak repo to publish this tag
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || steps.main-release.outputs.released == 'true'
         env:
           GH_TOKEN: ${{ secrets.FLATPAK_REPO_TOKEN }}
+          TAG: ${{ steps.main-release.outputs.tag || github.ref_name }}
         run: |
           if [[ -z "${GH_TOKEN:-}" ]]; then
             echo "FLATPAK_REPO_TOKEN is not set; the Flatpak repo picks this up on its next scheduled run."
@@ -117,4 +145,4 @@ jobs:
           fi
           gh api --method POST repos/bazixv13/flatpak-repo/dispatches \
             -f event_type=upstream-release \
-            -f client_payload[tag]="${GITHUB_REF_NAME}"
+            -f client_payload[tag]="${TAG}"
