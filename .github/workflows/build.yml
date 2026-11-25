@@ -71,6 +71,12 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     steps:
+      # The version and the repository context both come from the checkout:
+      # the release steps read Cargo.toml and call gh, and this job otherwise
+      # only has the downloaded artifact.
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Download artifact
         uses: actions/download-artifact@v8
         with:
